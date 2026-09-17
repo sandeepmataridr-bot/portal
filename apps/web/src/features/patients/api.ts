@@ -1,0 +1,167 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type {
+  RegisterPatientInput,
+  ReadmitPatientInput,
+  DischargePatientInput,
+  PatientClinicalUpdateInput,
+} from '@infusion/shared-types';
+import { apiFetch } from '../../lib/api';
+
+export interface PatientSummary {
+  id: string;
+  ipNumber: string;
+  fullName: string;
+  doctorName: string | null;
+  discharged: boolean;
+  claimStatus: string | null;
+}
+
+export interface PatientHistoryEntry {
+  id: string;
+  patientId: string;
+  version: number;
+  action: string;
+  snapshot: Record<string, unknown>;
+  actedBy: string | null;
+  createdAt: string;
+}
+
+export interface PatientDetail {
+  id: string;
+  ipNumber: string;
+  fullName: string;
+  age: number;
+  gender: string;
+  mobile: string;
+  emergencyContact: string;
+  aadhar: string;
+  address: string | null;
+  weightKg: number | null;
+  heightCm: number | null;
+  bpSystolic: number | null;
+  bpDiastolic: number | null;
+  heartRate: number | null;
+  temperatureF: number | null;
+  diagnosis: string | null;
+  insured: boolean;
+  diabetic: boolean;
+  diabeticYears: number | null;
+  hypertensive: boolean;
+  hypertensiveYears: number | null;
+  cva: boolean;
+  cad: boolean;
+  seizures: boolean;
+  thyroid: boolean;
+  othersText: string | null;
+  discharged: boolean;
+  dischargeDate: string | null;
+  dischargeRemarks: string | null;
+  doctor: { id: string; name: string } | null;
+  history: PatientHistoryEntry[];
+  insuranceClaims: Array<{ id: string; status: string; remarks: string | null }>;
+  machineAssignments: Array<{ id: string; machineId: string; machine: { machineCode: string; machineType: string } }>;
+}
+
+export interface ReceptionDashboardStats {
+  todayPatients: number;
+  insurancePending: number;
+  approved: number;
+  rejected: number;
+  discharged: number;
+}
+
+export function usePatients(search: string, doctorId?: string) {
+  return useQuery({
+    queryKey: ['patients', search, doctorId],
+    queryFn: () =>
+      apiFetch<PatientSummary[]>(
+        `/patients?${new URLSearchParams({ ...(search ? { search } : {}), ...(doctorId ? { doctorId } : {}) })}`,
+      ),
+  });
+}
+
+export function usePatient(id: string | null) {
+  return useQuery({
+    queryKey: ['patients', id],
+    queryFn: () => apiFetch<PatientDetail>(`/patients/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useReceptionDashboard() {
+  return useQuery({
+    queryKey: ['patients', 'dashboard'],
+    queryFn: () => apiFetch<ReceptionDashboardStats>('/patients/dashboard'),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useRegisterPatient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RegisterPatientInput) => apiFetch<PatientDetail>('/patients', { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+export function useReadmitPatient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ReadmitPatientInput }) =>
+      apiFetch<PatientDetail>(`/patients/${id}/readmit`, { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+export function useDischargePatient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: DischargePatientInput }) =>
+      apiFetch<PatientDetail>(`/patients/${id}/discharge`, { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+export function useUpdatePatientClinical() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: PatientClinicalUpdateInput }) =>
+      apiFetch<PatientDetail>(`/patients/${id}/clinical`, { method: 'PATCH', body: JSON.stringify(input) }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['patients', variables.id] });
+    },
+  });
+}
+
+export function useTagPatientMachine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, machineId }: { id: string; machineId: string }) =>
+      apiFetch(`/patients/${id}/machine`, { method: 'PATCH', body: JSON.stringify({ machineId }) }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['patients', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['machines'] });
+    },
+  });
+}
+
+export function useUntagPatientMachine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, machineId }: { id: string; machineId: string }) =>
+      apiFetch(`/patients/${id}/machine/${machineId}`, { method: 'DELETE' }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['patients', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['machines'] });
+    },
+  });
+}

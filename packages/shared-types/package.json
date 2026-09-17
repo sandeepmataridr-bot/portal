@@ -1,0 +1,21 @@
+{
+  "name": "@infusion/shared-types",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Shared zod schemas, RBAC policy, and the infusion state machine/cap logic — used by NestJS DTOs, React forms, and as the source for docs/sync-contract.md",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

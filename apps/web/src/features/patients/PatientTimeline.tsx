@@ -1,0 +1,91 @@
+import type { PatientHistoryEntry } from './api';
+
+const BADGE_CLASS: Record<string, string> = {
+  REGISTER: 'badge-register',
+  READMIT: 'badge-readmit',
+  READMIT_UPDATE: 'badge-readmit-update',
+  DISCHARGE: 'badge-discharge',
+  DOCTOR_UPDATE: 'badge-doctor-update',
+  DOCTOR_SUGGESTION: 'badge-doctor-update',
+  DOCTOR_SUGGESTION_DELETED: 'badge-doctor-update',
+  INSURANCE_APPROVED: 'badge-insurance-approved',
+  INSURANCE_PARTIALLY_APPROVED: 'badge-insurance-partially-approved',
+  INSURANCE_REJECTED: 'badge-insurance-rejected',
+  INSURANCE_REVOKED: 'badge-insurance-revoked',
+  INSURANCE_DOCUMENTS_REQUIRED: 'badge-insurance-documents-required',
+};
+
+function formatTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
+  const s = entry.snapshot ?? {};
+
+  if (entry.action === 'DOCTOR_UPDATE') {
+    return (
+      <div className="timeline-entry__body">
+        <p className="timeline-entry__meta">👤 Dr. {entry.actedBy ?? 'Unknown'}</p>
+        {s.diagnosis ? <p>Diagnosis: {String(s.diagnosis)}</p> : null}
+        {s.doctorNotes ? <p>Notes: {String(s.doctorNotes)}</p> : null}
+        {!s.diagnosis && !s.doctorNotes ? <p className="timeline-entry__nodata">(No summary details)</p> : null}
+      </div>
+    );
+  }
+
+  if (entry.action.startsWith('INSURANCE_')) {
+    return (
+      <div className="timeline-entry__body">
+        {s.claimStatus ? <p>Status: {String(s.claimStatus)}</p> : null}
+        {s.approvalRemarks ? <p>Remarks: {String(s.approvalRemarks)}</p> : null}
+        {s.approvedBy ? <p className="timeline-entry__approver">Approved by: {String(s.approvedBy)}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="timeline-entry__body">
+      <p>
+        {[
+          s.fullName ? `Name: ${s.fullName}` : null,
+          s.age != null ? `Age: ${s.age}` : null,
+          s.gender ? String(s.gender) : null,
+          s.ipNumber ? `IP: ${s.ipNumber}` : null,
+          s.discharged != null ? `Discharged: ${s.discharged ? 'Yes' : 'No'}` : null,
+        ]
+          .filter(Boolean)
+          .join(' | ')}
+      </p>
+      {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * The reference app's versioned patient-history feed, preserved as one
+ * shared component rather than rebuilt per page. `filterPrefix` lets a
+ * role-specific view narrow to its own action types (e.g. insurance shows
+ * only INSURANCE_*) without duplicating the rendering logic.
+ */
+export function PatientTimeline({ entries, filterPrefix }: { entries: PatientHistoryEntry[]; filterPrefix?: string }) {
+  const filtered = filterPrefix ? entries.filter((e) => e.action.startsWith(filterPrefix)) : entries;
+
+  if (filtered.length === 0) {
+    return <p className="timeline-empty">No history recorded.</p>;
+  }
+
+  return (
+    <div className="timeline">
+      {filtered.map((entry) => (
+        <div key={entry.id} className="timeline-entry">
+          <div className="timeline-entry__header">
+            <span className="timeline-entry__version">v{entry.version}</span>
+            <span className={`timeline-badge ${BADGE_CLASS[entry.action] ?? 'badge-default'}`}>{entry.action}</span>
+            <span className="timeline-entry__date">{formatTimestamp(entry.createdAt)}</span>
+          </div>
+          <EntryBody entry={entry} />
+        </div>
+      ))}
+    </div>
+  );
+}

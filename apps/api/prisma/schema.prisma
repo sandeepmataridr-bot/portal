@@ -1,0 +1,538 @@
+// Infusion Platform — core data model.
+// Source of truth: C:\Users\rpava\.claude\plans\understand-this-project-compressed-wirth.md
+// Domain reference (read-only, not migrated): I:\infusion_server\database\pharmacy_schema.sql
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  doctor
+  reception
+  pharmacy
+  insurance
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  loginId            String    @unique
+  role               Role
+  passwordHash       String
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(true)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  doctorProfile          DoctorProfile?
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]                 @relation("AuditActor")
+  patientsRegistered     Patient[]                  @relation("PatientRegisteredBy")
+  infusionOrders         InfusionOrder[]            @relation("OrderedBy")
+  stepEvents             InfusionStepEvent[]        @relation("StepEventActor")
+  machineAssignmentsMade PatientMachineAssignment[] @relation("MachineAssignedBy")
+
+  @@map("users")
+}
+
+model DoctorProfile {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  specialty     String?
+  qualification String?
+  patients      Patient[] @relation("PatientDoctor")
+
+  @@map("doctor_profiles")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  userAgent         String?
+  ip                String?
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+enum MachineStatus {
+  online
+  offline
+}
+
+// machineType is a free string, not a Prisma enum, matching MACHINE_TYPES in
+// packages/shared-types/src/machine.schema.ts — new machine types (ECMO,
+// EBOO, ...) are added there first. Each machine type gets its own domain
+// module (InfusionModule today; EcmoModule/EbooModule later) with its own
+// typed order/step/live-status tables and state machine — this Machine model
+// is deliberately type-agnostic, holding only the fleet-level concerns
+// (registration, connectivity, credentials) shared by every machine type.
+model Machine {
+  id          String        @id @default(uuid())
+  machineType String
+  machineCode String        @unique
+  location    String?
+  tailscaleIp String?
+  status      MachineStatus @default(offline)
+  lastSeenAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  credentials        MachineCredential[]
+  patientAssignments PatientMachineAssignment[]
+  infusionOrders     InfusionOrder[]
+  liveStatus         InfusionLiveStatus?
+  outboxEntries      SyncOutboxEntry[]
+  inboxLogs          SyncInboxLog[]
+
+  @@map("machines")
+}
+
+model MachineCredential {
+  id             String    @id @default(uuid())
+  machineId      String
+  machine        Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  credentialHash String
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([machineId])
+  @@map("machine_credentials")
+}
+
+enum SyncStatus {
+  pending_machine_ack
+  accepted
+  rejected
+}
+
+model Patient {
+  id               String  @id @default(uuid())
+  ipNumber         String  @unique
+  fullName         String
+  age              Int
+  gender           String
+  mobile           String
+  emergencyContact String
+  aadhar           String
+  address          String?
+
+  weightKg     Float?
+  heightCm     Float?
+  bpSystolic   Int?
+  bpDiastolic  Int?
+  heartRate    Int?
+  temperatureF Float?
+  diagnosis    String?
+
+  doctorProfileId String?
+  doctor          DoctorProfile? @relation("PatientDoctor", fields: [doctorProfileId], references: [id])
+
+  // A patient can be connected to several machines at once (e.g. ECMO +
+  // infusion pump simultaneously) — see PatientMachineAssignment below.
+  machineAssignments PatientMachineAssignment[]
+
+  insured           Boolean @default(false)
+  diabetic          Boolean @default(false)
+  diabeticYears     Int?
+  hypertensive      Boolean @default(false)
+  hypertensiveYears Int?
+  cva               Boolean @default(false)
+  cad               Boolean @default(false)
+  seizures          Boolean @default(false)
+  thyroid           Boolean @default(false)
+  othersText        String?
+
+  discharged       Boolean   @default(false)
+  dischargeDate    DateTime?
+  dischargeRemarks String?
+
+  registeredById String?
+  registeredBy   User?   @relation("PatientRegisteredBy", fields: [registeredById], references: [id])
+
+  version   Int       @default(1)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  history           PatientHistory[]
+  insuranceClaims   InsuranceClaim[]
+  infusionOrders    InfusionOrder[]
+  stockTransactions StockTransaction[]
+  medicineRequests  MedicineRequest[]
+  liveStatuses      InfusionLiveStatus[]
+
+  @@map("patients")
+}
+
+model PatientHistory {
+  id        String   @id @default(uuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  version   Int
+  action    String
+  snapshot  Json
+  actedBy   String?
+  createdAt DateTime @default(now())
+
+  @@index([patientId])
+  @@map("patient_history")
+}
+
+model InsuranceCompany {
+  id     String           @id @default(uuid())
+  name   String           @unique
+  claims InsuranceClaim[]
+
+  @@map("insurance_companies")
+}
+
+enum ClaimStatus {
+  draft
+  submitted
+  under_review
+  documents_required
+  approved
+  partially_approved
+  rejected
+  closed
+}
+
+model InsuranceClaim {
+  id                 String            @id @default(uuid())
+  patientId          String
+  patient            Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  insuranceCompanyId String?
+  insuranceCompany   InsuranceCompany? @relation(fields: [insuranceCompanyId], references: [id])
+  insuranceType      String?
+  policyNumber       String?
+  memberId           String?
+  relationship       String?
+  policyStart        DateTime?
+  policyEnd          DateTime?
+  tpaName            String?
+  status             ClaimStatus       @default(draft)
+  remarks            String?
+  approvedById       String?
+  cardPhotoPath      String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@map("insurance_claims")
+}
+
+enum MedicineStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Medicine {
+  id            String         @id @default(uuid())
+  medicineCode  String         @unique
+  name          String
+  genericName   String?
+  brand         String?
+  category      String?
+  concentration String
+  manufacturer  String?
+  unitMl        Float
+  stockQty      Float          @default(0)
+  minStock      Float          @default(0)
+  reorderLevel  Float          @default(0)
+  pricePerUnit  Float          @default(0)
+  batchNo       String?
+  expiryDate    DateTime?
+  rackNo        Int?
+  channelNo     Int?
+  flushRequired Boolean        @default(false)
+  flushVolumeMl Float          @default(0)
+  highAlert     Boolean        @default(false)
+  status        MedicineStatus @default(ACTIVE)
+
+  // Not present in the reference schema — see plan §5 "Dosage/Rate Capping Design".
+  maxFlowRateMlPerH         Float?
+  maxSingleDoseMl           Float?
+  absoluteMaxFlowRateMlPerH Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockTransactions StockTransaction[]
+  infusionSteps     InfusionStep[]
+  medicineRequests  MedicineRequest[]
+
+  @@map("medicines")
+}
+
+enum StockTransactionType {
+  STOCK_IN
+  STOCK_OUT
+}
+
+model StockTransaction {
+  id              String               @id @default(uuid())
+  medicineId      String
+  medicine        Medicine             @relation(fields: [medicineId], references: [id])
+  transactionType StockTransactionType
+  quantity        Float
+  unitCost        Float?
+  supplier        String?
+  invoiceNo       String?
+  patientId       String?
+  patient         Patient?             @relation(fields: [patientId], references: [id])
+  machineId       String?
+  isDamaged       Boolean              @default(false)
+  paymentMethod   String?
+  subtotalAmount  Float?
+  gstAmount       Float?
+  totalAmount     Float?
+  transactionRef  String?
+  remarks         String?
+  createdAt       DateTime             @default(now())
+
+  @@index([medicineId])
+  @@map("stock_transactions")
+}
+
+enum MedicineRequestStatus {
+  pending
+  fulfilled
+  rejected
+}
+
+model MedicineRequest {
+  id           String                @id @default(uuid())
+  patientId    String
+  patient      Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  medicineId   String?
+  medicine     Medicine?             @relation(fields: [medicineId], references: [id])
+  medicineName String
+  notes        String?
+  status       MedicineRequestStatus @default(pending)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@map("medicine_requests")
+}
+
+model InsuranceRejectionReason {
+  code        String @id
+  description String
+
+  @@map("insurance_rejection_reasons")
+}
+
+enum AuditActorType {
+  user
+  machine
+  system
+}
+
+model AuditLog {
+  id          String         @id @default(uuid())
+  actorUserId String?
+  actor       User?          @relation("AuditActor", fields: [actorUserId], references: [id])
+  actorType   AuditActorType
+  action      String
+  entityTable String
+  entityId    String?
+  before      Json?
+  after       Json?
+  createdAt   DateTime       @default(now())
+
+  @@index([entityTable, entityId])
+  @@map("audit_logs")
+}
+
+// A patient may be connected to several machines at once (e.g. ECMO + an
+// infusion pump simultaneously); a machine treats one patient at a time.
+// "Currently active" = unassignedAt is null. Enforcing at most one active
+// assignment per machine is a service-layer check (see the plan's "Workflow
+// order" section), not a DB constraint, consistent with how every other
+// cross-entity precondition in this schema is enforced.
+//
+// syncStatus is only meaningful for bidirectional machine types (see
+// MACHINE_TYPE_DIRECTIONALITY in shared-types/machine.schema.ts). For
+// unidirectional types (ECMO/EBOO) an assignment is just server-side
+// bookkeeping and should be created as `accepted` immediately — there's no
+// device round-trip to wait for.
+model PatientMachineAssignment {
+  id           String     @id @default(uuid())
+  patientId    String
+  patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  machineId    String
+  machine      Machine    @relation(fields: [machineId], references: [id])
+  assignedById String?
+  assignedBy   User?      @relation("MachineAssignedBy", fields: [assignedById], references: [id])
+  assignedAt   DateTime   @default(now())
+  unassignedAt DateTime?
+  syncStatus   SyncStatus @default(pending_machine_ack)
+  version      Int        @default(1)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([patientId])
+  @@index([machineId])
+  @@map("patient_machine_assignments")
+}
+
+enum InfusionOrderStatus {
+  draft
+  submitted
+  completed
+  cancelled
+}
+
+model InfusionOrder {
+  id            String              @id @default(uuid())
+  patientId     String
+  patient       Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  // Which physical infusion pump this order targets — required because a
+  // patient may have more than one machine assigned at once.
+  machineId     String
+  machine       Machine             @relation(fields: [machineId], references: [id])
+  orderedById   String
+  orderedBy     User                @relation("OrderedBy", fields: [orderedById], references: [id])
+  status        InfusionOrderStatus @default(draft)
+  clinicalNotes String?
+  version       Int                 @default(1)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  steps InfusionStep[]
+
+  @@index([patientId])
+  @@index([machineId])
+  @@map("infusion_orders")
+}
+
+// status is a free string matching InfusionStepStatus in
+// packages/shared-types/src/infusion.schema.ts (kept as a string here rather
+// than a Prisma enum so the state machine's transition table — the single
+// source of truth — never has to be duplicated as a second enum definition).
+model InfusionStep {
+  id                     String        @id @default(uuid())
+  orderId                String
+  order                  InfusionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stepNumber             Int
+  medicineId             String
+  medicine               Medicine      @relation(fields: [medicineId], references: [id])
+  rackNo                 Int?
+  channelNo              Int?
+  plannedVolumeMl        Float
+  plannedRateMlPerH      Float
+  status                 String        @default("DRAFT")
+  pharmacyVerifiedById   String?
+  pharmacyVerifiedAt     DateTime?
+  highAlertConfirmedById String?
+  highAlertConfirmedAt   DateTime?
+  startedAt              DateTime?
+  completedAt            DateTime?
+  syncStatus             SyncStatus    @default(pending_machine_ack)
+  version                Int           @default(1)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  events InfusionStepEvent[]
+
+  @@index([orderId])
+  @@map("infusion_steps")
+}
+
+model InfusionStepEvent {
+  id             String         @id @default(uuid())
+  stepId         String
+  step           InfusionStep   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  fromStatus     String
+  toStatus       String
+  actorType      AuditActorType
+  actorUserId    String?
+  actorUser      User?          @relation("StepEventActor", fields: [actorUserId], references: [id])
+  actorMachineId String?
+  reason         String?
+  payload        Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([stepId])
+  @@map("infusion_step_events")
+}
+
+enum PumpState {
+  RUNNING
+  PAUSED
+  STOPPED
+}
+
+// patientId is intentionally NOT unique — a patient may have several
+// machines (and therefore several live-status rows) at once. machineId is
+// unique: a single physical machine runs one thing at a time.
+model InfusionLiveStatus {
+  id                  String    @id @default(uuid())
+  patientId           String
+  patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  machineId           String    @unique
+  machine             Machine   @relation(fields: [machineId], references: [id])
+  stepId              String?
+  currentMedicineName String?
+  remainingVolumeMl   Float     @default(0)
+  dispensedVolumeMl   Float     @default(0)
+  flowRateMlPerH      Float     @default(0)
+  infusedTimeMin      Float     @default(0)
+  pumpState           PumpState @default(STOPPED)
+  lastUpdateAt        DateTime  @default(now())
+
+  @@index([patientId])
+  @@map("infusion_live_status")
+}
+
+// entityType/status are free strings matching SyncEntityType/SyncOutboxStatus
+// in packages/shared-types/src/sync.schema.ts, for the same reason as above.
+model SyncOutboxEntry {
+  id          String    @id @default(uuid())
+  machineId   String
+  machine     Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  entityType  String
+  entityId    String
+  payload     Json
+  version     Int
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+  resolvedAt  DateTime?
+
+  @@index([machineId, status])
+  @@map("sync_outbox")
+}
+
+model SyncInboxLog {
+  id         String   @id @default(uuid())
+  machineId  String
+  machine    Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  proposalId String?
+  entityType String
+  entityId   String
+  outcome    String
+  reason     String?
+  payload    Json?
+  occurredAt DateTime
+  receivedAt DateTime @default(now())
+
+  @@index([machineId])
+  @@map("sync_inbox_log")
+}
