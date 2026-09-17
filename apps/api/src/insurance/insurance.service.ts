@@ -44,10 +44,10 @@ export class InsuranceService {
     return this.prisma.insuranceRejectionReason.findMany({ orderBy: { code: 'asc' } });
   }
 
-  listClaims(status?: string, search?: string) {
+  listClaims(status?: ClaimStatus, search?: string) {
     return this.prisma.insuranceClaim.findMany({
       where: {
-        status: status ? (status as ClaimStatus) : undefined,
+        status,
         patient: search
           ? { OR: [{ fullName: { contains: search, mode: 'insensitive' } }, { ipNumber: { contains: search, mode: 'insensitive' } }] }
           : undefined,

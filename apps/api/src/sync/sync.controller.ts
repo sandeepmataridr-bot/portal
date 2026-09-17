@@ -1,4 +1,5 @@
 import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { syncPullRequestSchema, syncPushRequestSchema, type SyncPullRequest, type SyncPushRequest } from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Public } from '../auth/decorators/public.decorator.js';
@@ -31,6 +32,9 @@ export class SyncController {
   }
 
   @Roles('admin')
+  // Issues the machine's long-lived secret — shown only once. Throttle it
+  // like any other credential-issuing endpoint.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('machines/:id/credentials')
   issueCredential(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.credentials.issue(id, user);

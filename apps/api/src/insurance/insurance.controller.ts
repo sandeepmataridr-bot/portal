@@ -1,5 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { claimDecisionSchema, claimRevokeSchema, ROLES, type ClaimDecisionInput, type ClaimRevokeInput } from '@infusion/shared-types';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  CLAIM_STATUSES,
+  claimDecisionSchema,
+  claimRevokeSchema,
+  ROLES,
+  type ClaimDecisionInput,
+  type ClaimRevokeInput,
+  type ClaimStatus,
+} from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -25,7 +33,10 @@ export class InsuranceController {
   @Roles('insurance', 'admin')
   @Get('claims')
   listClaims(@Query('status') status?: string, @Query('search') search?: string) {
-    return this.insurance.listClaims(status, search);
+    if (status !== undefined && !CLAIM_STATUSES.includes(status as ClaimStatus)) {
+      throw new BadRequestException(`Invalid status filter. Must be one of: ${CLAIM_STATUSES.join(', ')}`);
+    }
+    return this.insurance.listClaims(status as ClaimStatus | undefined, search);
   }
 
   @Roles('insurance', 'admin')

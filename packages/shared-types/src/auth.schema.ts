@@ -24,7 +24,9 @@ export type SessionUser = z.infer<typeof sessionUserSchema>;
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+    // NIST SP 800-63B prioritizes length over composition rules — 12 chars
+    // rather than 8, no arbitrary complexity requirements.
+    newPassword: z.string().min(12, 'New password must be at least 12 characters'),
     confirmPassword: z.string().min(1),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {

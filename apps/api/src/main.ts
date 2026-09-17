@@ -27,14 +27,18 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Infusion Platform API')
-    .setDescription('Fleet dashboard + master registry API. See docs/sync-contract.md for the machine sync protocol.')
-    .setVersion('0.1')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  // Never expose the full API schema publicly in production — it's a
+  // reconnaissance gift to an attacker (every route, every DTO shape).
+  if (config.get('NODE_ENV', { infer: true }) !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Infusion Platform API')
+      .setDescription('Fleet dashboard + master registry API. See docs/sync-contract.md for the machine sync protocol.')
+      .setVersion('0.1')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = config.get('PORT', { infer: true });
   await app.listen(port);

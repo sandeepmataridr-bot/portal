@@ -2,9 +2,11 @@ node_modules/
 dist/
 build/
 .turbo/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
+!.env.prod.example
 *.log
 coverage/
 .DS_Store

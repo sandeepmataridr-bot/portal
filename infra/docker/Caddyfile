@@ -1,0 +1,24 @@
+{$DOMAIN} {
+	encode gzip zstd
+
+	# Strip /api before forwarding — the NestJS app has no global prefix,
+	# so `/api/auth/login` on the wire becomes `/auth/login` to the api
+	# container. Keeps the browser talking to one origin (no CORS, no
+	# separate subdomain/cert to manage).
+	handle_path /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   createDoctorSchema,
   updateDoctorSchema,
@@ -57,6 +58,9 @@ export class DoctorsController {
   }
 
   @Roles('admin')
+  // Credential-issuing endpoint — throttle even for an authenticated admin,
+  // in case that session/token is itself compromised.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post(':id/reset-password')
   resetPassword(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.doctors.resetPassword(id, user);

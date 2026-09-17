@@ -47,12 +47,16 @@ export class AuthController {
   }
 
   @Public()
+  // Refresh is unauthenticated (relies on the httpOnly cookie) — throttle it
+  // too, since it's still a token-validation endpoint an attacker could
+  // hammer with stolen/guessed cookies.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const rawToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (!rawToken) {
-      res.clearCookie(REFRESH_COOKIE_NAME, { path: '/auth' });
+      res.clearCookie(REFRESH_COOKIE_NAME, { path: this.cookiePath });
       return res.status(HttpStatus.UNAUTHORIZED).json({ message: 'No refresh token' });
     }
 
@@ -70,10 +74,11 @@ export class AuthController {
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const rawToken = req.cookies?.[REFRESH_COOKIE_NAME];
     await this.authService.logout(rawToken);
-    res.clearCookie(REFRESH_COOKIE_NAME, { path: '/auth' });
+    res.clearCookie(REFRESH_COOKIE_NAME, { path: this.cookiePath });
   }
 
   @Roles(...ROLES)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
   async changePassword(
@@ -91,12 +96,16 @@ export class AuthController {
     return { accessToken: result.accessToken, user: result.user };
   }
 
+  private get cookiePath(): string {
+    return this.config.get('REFRESH_COOKIE_PATH', { infer: true });
+  }
+
   private setRefreshCookie(res: Response, result: LoginResult) {
     res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, {
       httpOnly: true,
       secure: this.config.get('NODE_ENV', { infer: true }) === 'production',
       sameSite: 'strict',
-      path: '/auth',
+      path: this.cookiePath,
       expires: result.refreshExpiresAt,
     });
   }

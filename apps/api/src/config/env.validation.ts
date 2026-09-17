@@ -16,6 +16,14 @@ export const envSchema = z.object({
 
   ARGON2_SECRET: z.string().min(16).optional(),
 
+  // The refresh cookie's Path attribute must match the PUBLIC url the
+  // browser sees for /auth/*, not this app's internal route. If a reverse
+  // proxy strips a path prefix (e.g. serving this API at /api/* and
+  // forwarding /api/auth/* -> /auth/*), the public path is /api/auth and
+  // this must be set to "/api/auth" or the browser will never send the
+  // cookie back (silently breaking refresh/logout in prod, not dev).
+  REFRESH_COOKIE_PATH: z.string().min(1).default('/auth'),
+
   CORS_ORIGINS: z
     .string()
     .min(1, 'CORS_ORIGINS is required (comma-separated allow-list, no wildcards)')

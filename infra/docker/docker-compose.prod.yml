@@ -1,0 +1,118 @@
+name: infusion-platform
+
+# Production stack: postgres + redis + api + web(Caddy: static SPA + TLS +
+# reverse proxy to api). One public origin (DOMAIN) — the web container is
+# the only thing exposed to the internet; api is reachable only on the
+# internal compose network. This keeps the refresh-token cookie same-origin
+# (it is SameSite=Strict, so a split-subdomain deploy would silently break
+# it — see apps/api/src/config/env.validation.ts).
+#
+# Usage:
+#   cp infra/docker/.env.prod.example infra/docker/.env.prod   # fill in real secrets
+#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod build
+#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod run --rm migrate
+#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Not published to the host — only api/migrate on the compose network
+    # reach it. Uncomment to allow an external DB client on the VPS itself:
+    # ports: ["127.0.0.1:5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-off migration runner — never auto-run on api boot (see api Dockerfile
+  # comment). Run explicitly before `up -d` on first deploy and before every
+  # update that ships a new migration:
+  #   docker compose -f infra/docker/docker-compose.prod.yml run --rm migrate
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      target: build
+    working_dir: /workspace/apps/api
+    command: ["pnpm", "exec", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["tools"]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      # Public path is /api/auth/* — the web container's Caddyfile strips
+      # /api before forwarding, so the cookie Path must match what the
+      # browser actually sees, not this app's internal route.
+      REFRESH_COOKIE_PATH: /api/auth
+      CORS_ORIGINS: https://${DOMAIN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Not published to the host — only reachable via the web/Caddy proxy.
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: /api
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:
