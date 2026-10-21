@@ -152,3 +152,47 @@ export const rejectStepSchema = z.object({
   reason: z.string().min(3, 'A reason is required'),
 });
 export type RejectStepInput = z.infer<typeof rejectStepSchema>;
+
+/**
+ * Super-user remote commands — the one deliberate, narrow exception to
+ * "machine always decides" (plan § "Super-user remote commands"). A free
+ * string on the Prisma model itself (matching Machine.machineType's own
+ * reasoning: ECMO/EBOO will define their own vocabularies later without a
+ * migration), but this app only ever accepts this fixed set today, gated to
+ * machineType === 'INFUSION_PUMP' at the service layer.
+ */
+export const INFUSION_COMMAND_TYPES = ['PAUSE', 'RESUME', 'STOP', 'ADJUST_FLOW_RATE'] as const;
+export type InfusionCommandType = (typeof INFUSION_COMMAND_TYPES)[number];
+
+export const MACHINE_COMMAND_STATUSES = ['SENT', 'ACKNOWLEDGED', 'FAILED', 'TIMED_OUT'] as const;
+export type MachineCommandStatus = (typeof MACHINE_COMMAND_STATUSES)[number];
+
+// Password re-confirmation travels with the command itself, not a separate
+// call — reuses the existing login password-verification path (no new
+// mechanism), and makes an accidental click structurally impossible rather
+// than just unlikely, matching the weight of directly affecting a running
+// infusion.
+export const sendMachineCommandSchema = z
+  .object({
+    commandType: z.enum(INFUSION_COMMAND_TYPES),
+    flowRateMlPerH: z.number().positive().optional(),
+    password: z.string().min(1, 'Password confirmation is required'),
+  })
+  .refine((v) => v.commandType !== 'ADJUST_FLOW_RATE' || v.flowRateMlPerH != null, {
+    message: 'flowRateMlPerH is required for ADJUST_FLOW_RATE',
+    path: ['flowRateMlPerH'],
+  });
+export type SendMachineCommandInput = z.infer<typeof sendMachineCommandSchema>;
+
+export interface MachineCommandSummary {
+  id: string;
+  machineId: string;
+  commandType: string;
+  payload: Record<string, unknown> | null;
+  issuedById: string;
+  issuedByLoginId: string;
+  issuedAt: string;
+  status: MachineCommandStatus;
+  respondedAt: string | null;
+  result: Record<string, unknown> | null;
+}

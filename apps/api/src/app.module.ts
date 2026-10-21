@@ -14,7 +14,9 @@ import { PatientsModule } from './patients/patients.module.js';
 import { MedicinesModule } from './medicines/medicines.module.js';
 import { InsuranceModule } from './insurance/insurance.module.js';
 import { InfusionsModule } from './infusions/infusions.module.js';
+import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
 import { SyncModule } from './sync/sync.module.js';
+import { VigilModule } from './vigil/vigil.module.js';
 
 @Module({
   imports: [
@@ -36,7 +38,9 @@ import { SyncModule } from './sync/sync.module.js';
     MedicinesModule,
     InsuranceModule,
     InfusionsModule,
+    ReconciliationModule,
     SyncModule,
+    VigilModule,
   ],
   controllers: [AppController],
   providers: [

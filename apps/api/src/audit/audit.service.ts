@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export interface AuditEntry {
   actorUserId?: string | null;
   actorType: AuditActorType;
+  actorMachineId?: string | null;
   action: string;
   entityTable: string;
   entityId?: string | null;
@@ -21,6 +22,7 @@ export class AuditService {
       data: {
         actorUserId: entry.actorUserId ?? null,
         actorType: entry.actorType,
+        actorMachineId: entry.actorMachineId ?? null,
         action: entry.action,
         entityTable: entry.entityTable,
         entityId: entry.entityId ?? null,

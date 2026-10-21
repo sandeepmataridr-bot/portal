@@ -56,6 +56,11 @@ button {
   gap: 12px;
 }
 
+.app-shell__link {
+  color: white;
+  font-weight: 600;
+}
+
 .app-shell__nav button {
   background: var(--color-danger);
   color: white;
@@ -184,6 +189,13 @@ button {
 .stat-tile--danger .stat-tile__value { color: var(--color-danger); }
 .stat-tile--success .stat-tile__value { color: var(--color-primary); }
 .stat-tile--info .stat-tile__value { color: var(--color-info); }
+.stat-tile--clickable {
+  font-family: inherit;
+  width: 100%;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.stat-tile--clickable:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); border-color: var(--color-primary); }
 
 /* ---------- Cards / panels ---------- */
 .info-card {
@@ -369,4 +381,17 @@ button {
 .status-partially_approved { background: #b2dfdb; color: #00695c; }
 .status-closed { background: #bdbdbd; color: #424242; }
 .remarks-text { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Machine mirror view (superuser live-telemetry + remote control) ---------- */
+.mirror-view__header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.mirror-view__body { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.mirror-view__flow { display: flex; flex-direction: column; align-items: center; min-width: 160px; text-align: center; }
+.mirror-view__flow-unit { font-weight: bold; margin: 0; }
+.mirror-view__flow-label { color: var(--color-muted); font-size: 0.85rem; margin: 2px 0; }
+.mirror-view__flow-value { font-size: 3.5rem; font-weight: bold; color: var(--color-primary); margin: 0; line-height: 1; }
+.mirror-view__pump-icon { font-size: 2.5rem; margin: 8px 0 0; }
+.mirror-view__cards { flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 12px; }
+.mirror-view__row { background: #f0f2f5; padding: 8px 10px; border-radius: 4px; margin-top: 6px; }
+.mirror-view__accent { color: var(--color-primary); font-weight: bold; }
+.mirror-view__controls { margin-top: 16px; }
 .locked-label { color: var(--color-muted); font-size: 0.85rem; }

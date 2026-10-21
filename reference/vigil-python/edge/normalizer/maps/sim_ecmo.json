@@ -1,0 +1,5 @@
+{
+  "QB": "ECMO_BLOOD_FLOW",
+  "DPOXY": "ECMO_OXY_DELTA_P",
+  "SWEEP": "ECMO_SWEEP_FLOW"
+}

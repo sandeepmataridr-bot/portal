@@ -64,6 +64,14 @@ export function useResetDoctorPassword() {
   });
 }
 
+export function usePromoteDoctor() {
+  const invalidate = useInvalidateDoctors();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<CreateDoctorResult>(`/doctors/${id}/promote`, { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useDoctorHistory(id: string | null) {
   return useQuery({
     queryKey: ['doctors', id, 'history'],

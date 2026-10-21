@@ -4,16 +4,32 @@ import { MACHINE_TYPES } from '@infusion/shared-types';
 import { AppShell } from '../../components/AppShell';
 import { StatTile } from '../../components/StatTile';
 import { useFleetStatus, useCreateMachine, useIssueMachineCredential } from '../../features/machines/api';
-import { useAllDoctors, useCreateDoctor, useArchiveDoctor, useUnarchiveDoctor, useResetDoctorPassword } from '../../features/doctors/api';
+import { AssignPatientModal } from '../../features/machines/AssignPatientModal';
+import { MachineMirrorView } from '../../features/machines/MachineMirrorView';
+import {
+  useAllDoctors,
+  useCreateDoctor,
+  useArchiveDoctor,
+  useUnarchiveDoctor,
+  useResetDoctorPassword,
+  usePromoteDoctor,
+} from '../../features/doctors/api';
+import { usePatients, useUntagPatientMachine } from '../../features/patients/api';
 import { ModifyDoctorModal } from '../../features/doctors/ModifyDoctorModal';
 import { DoctorHistoryModal } from '../../features/doctors/DoctorHistoryModal';
 
 function FleetPanel() {
   const { data: fleet } = useFleetStatus();
+  const { data: allPatients } = usePatients('');
   const createMachine = useCreateMachine();
   const issueCredential = useIssueMachineCredential();
+  const untag = useUntagPatientMachine();
   const [form, setForm] = useState({ machineCode: '', machineType: 'INFUSION_PUMP' as MachineType, location: '' });
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [assignModal, setAssignModal] = useState<{ machineId: string; machineCode: string } | null>(null);
+  const [mirrorMachine, setMirrorMachine] = useState<{ machineId: string; machineCode: string } | null>(null);
+
+  const patientName = (id: string) => allPatients?.find((p) => p.id === id)?.fullName ?? id;
 
   const registerMachine = async () => {
     if (!form.machineCode) return;
@@ -24,6 +40,10 @@ function FleetPanel() {
   const issueFor = async (machineId: string) => {
     const result = await issueCredential.mutateAsync(machineId);
     setIssuedToken(`${result.machineCode}: ${result.token}`);
+  };
+
+  const unassign = (machineId: string, patientId: string) => {
+    untag.mutate({ id: patientId, machineId });
   };
 
   return (
@@ -54,16 +74,44 @@ function FleetPanel() {
               <td>
                 <span className={`badge ${m.status === 'online' ? 'badge-yes' : 'badge-no'}`}>{m.status}</span>
               </td>
-              <td>{m.assignedPatientId ?? '—'}</td>
+              <td>{m.assignedPatientId ? patientName(m.assignedPatientId) : '—'}</td>
               <td>
                 <button type="button" className="link-button" onClick={() => issueFor(m.id)}>
                   🔑 Issue Credential
-                </button>
+                </button>{' '}
+                {m.machineType === 'INFUSION_PUMP' && (
+                  <>
+                    <button type="button" className="link-button" onClick={() => setMirrorMachine({ machineId: m.id, machineCode: m.machineCode })}>
+                      📟 View Live
+                    </button>{' '}
+                  </>
+                )}
+                {m.assignedPatientId ? (
+                  <button type="button" className="link-button" onClick={() => unassign(m.id, m.assignedPatientId!)} disabled={untag.isPending}>
+                    ✖ Unassign
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setAssignModal({ machineId: m.id, machineCode: m.machineCode })}
+                  >
+                    🧑‍⚕️ Assign Patient
+                  </button>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {assignModal && (
+        <AssignPatientModal machineId={assignModal.machineId} machineCode={assignModal.machineCode} onClose={() => setAssignModal(null)} />
+      )}
+
+      {mirrorMachine && (
+        <MachineMirrorView machineId={mirrorMachine.machineId} machineCode={mirrorMachine.machineCode} onClose={() => setMirrorMachine(null)} />
+      )}
 
       {issuedToken && (
         <p className="form-hint">
@@ -106,6 +154,7 @@ function ManageDoctorsPanel() {
   const archive = useArchiveDoctor();
   const unarchive = useUnarchiveDoctor();
   const resetPassword = useResetDoctorPassword();
+  const promote = usePromoteDoctor();
 
   const [form, setForm] = useState({ name: '', qualification: '', specialty: '' });
   const [createdCreds, setCreatedCreds] = useState<string | null>(null);
@@ -177,12 +226,27 @@ function ManageDoctorsPanel() {
               </td>
               <td>{d.qualification}</td>
               <td>{d.specialty}</td>
-              <td>{d.loginId}</td>
+              <td>{d.loginId ?? '—'}</td>
               <td>
-                <span className={`status-badge status-${d.isActive ? 'active' : 'inactive'}`}>{d.isActive ? 'Active' : 'Archived'}</span>
+                {d.isTemporary ? (
+                  <span className="status-badge status-inactive" title="Bedside-created, no login account — attributed to the reporting machine">
+                    🚑 Temporary
+                  </span>
+                ) : (
+                  <span className={`status-badge status-${d.isActive ? 'active' : 'inactive'}`}>{d.isActive ? 'Active' : 'Archived'}</span>
+                )}
               </td>
               <td>
-                {d.isActive ? (
+                {d.isTemporary ? (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => promote.mutate(d.id, { onSuccess: (r) => setCreatedCreds(`✅ Promoted to a real account! Login ID: ${r.loginId}, Password: ${r.tempPassword}`) })}
+                    disabled={promote.isPending}
+                  >
+                    ⬆️ Promote to account
+                  </button>
+                ) : d.isActive ? (
                   <>
                     <button type="button" className="link-button" onClick={() => setModal({ kind: 'modify', doctor: d })}>
                       ✏️

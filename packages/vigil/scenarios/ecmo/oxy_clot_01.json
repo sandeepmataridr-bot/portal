@@ -1,0 +1,20 @@
+{
+  "description": "VA-ECMO, oxygenator clotting from hour 2: pressure drop rises 6 mmHg/h, post-oxygenator PO2 falls below 200 mmHg at hour 5. Sweep unchanged.",
+  "duration": "8h",
+  "seed": 101,
+  "encounter_id": "enc-sim-001",
+  "therapy": {"type": "ECMO", "episode_id": "ep-sim-001", "mode": "VA"},
+  "devices": [
+    {"device_id": "sim-ecmo-01", "driver": "sim_ecmo", "confirmed": true},
+    {"device_id": "sim-bga-01", "driver": "hl7_pcd01", "confirmed": true}
+  ],
+  "signals": {
+    "ECMO_BLOOD_FLOW":  {"device": "sim-ecmo-01", "period": "1s",  "noise": 0.05, "timeline": [["0h", 4.2]]},
+    "ECMO_OXY_DELTA_P": {"device": "sim-ecmo-01", "period": "5s",  "noise": 0.8,  "timeline": [["0h", 25], ["2h", 25], ["8h", 61]]},
+    "ECMO_SWEEP_FLOW":  {"device": "sim-ecmo-01", "period": "60s", "timeline": [["0h", 3.0]]}
+  },
+  "labs": {
+    "BG_POST_OXY_PO2": {"device": "sim-bga-01", "samples": [["0h", 452], ["2h", 431], ["4h", 322], ["5h", 176], ["6h", 148], ["7h", 121]]}
+  },
+  "annotations": [{"at": "5h", "label": "oxygenator failure: post-oxygenator PO2 < 200 mmHg with rising pressure drop"}]
+}

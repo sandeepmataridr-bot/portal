@@ -1,0 +1,22 @@
+{
+  "description": "Stable oxygenator with low post-oxygenator PO2 (low sweep FDO2). From hour 5 the pressure line is flushed every 10 min for 2 min (+80 mmHg). Without SQI filtering the flushes look like a rising trend.",
+  "duration": "8h",
+  "seed": 303,
+  "encounter_id": "enc-sim-003",
+  "therapy": {"type": "ECMO", "episode_id": "ep-sim-003", "mode": "VV"},
+  "devices": [
+    {"device_id": "sim-ecmo-03", "driver": "sim_ecmo", "confirmed": true},
+    {"device_id": "sim-bga-03", "driver": "hl7_pcd01", "confirmed": true}
+  ],
+  "signals": {
+    "ECMO_BLOOD_FLOW":  {"device": "sim-ecmo-03", "period": "1s",  "noise": 0.05, "timeline": [["0h", 4.0]]},
+    "ECMO_OXY_DELTA_P": {"device": "sim-ecmo-03", "period": "5s",  "noise": 0.8,  "timeline": [["0h", 26]]},
+    "ECMO_SWEEP_FLOW":  {"device": "sim-ecmo-03", "period": "60s", "timeline": [["0h", 3.0]]}
+  },
+  "labs": {
+    "BG_POST_OXY_PO2": {"device": "sim-bga-03", "samples": [["0h", 190], ["2h", 186], ["4h", 183], ["6h", 188], ["7h", 185]]}
+  },
+  "artifacts": [
+    {"signal": "ECMO_OXY_DELTA_P", "kind": "flush", "start": "5h", "every": "10min", "length": "2min", "offset": 80}
+  ]
+}

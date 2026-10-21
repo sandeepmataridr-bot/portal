@@ -1,0 +1,34 @@
+{
+ "scenario": "ecmo/stable_va_01",
+ "frames": {
+  "count": 35047,
+  "sha256": "70cc64e063807cfa260d02c5002ff828705bac249b889427a13ffa4fa7ee374e",
+  "first": [
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-02|0.000|QB|4.0063|L/min"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-02|0.000|DPOXY|3.4734|kPa"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-02|0.000|SWEEP|2.5000|L/min"
+   ],
+   [
+    0.0,
+    "hl7_pcd01",
+    "MSH|^~\\&|SIM_BGA|SIMLAB|VIGIL|EDGE|19700101000000||ORU^R01^ORU_R01|SIM000001|P|2.6\rOBR|1|||BG^Blood gas^L|||19700101000000\rOBX|1|NM|POST_OXY_PO2^Post-oxygenator pO2^L||448.0|mm[Hg]^mm[Hg]^UCUM|||||F|||19700101000000||||sim-bga-02\r"
+   ]
+  ]
+ },
+ "stats": {
+  "flag:SETTING": 481,
+  "observations": 35047
+ },
+ "transitions": []
+}

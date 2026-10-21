@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
-import { createMachineSchema, ROLES, type CreateMachineInput } from '@infusion/shared-types';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { createMachineSchema, sendMachineCommandSchema, ROLES, type CreateMachineInput, type SendMachineCommandInput } from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -26,5 +26,24 @@ export class MachinesController {
   @Post()
   create(@Body(new ZodValidationPipe(createMachineSchema)) body: CreateMachineInput, @CurrentUser() user: AuthenticatedUser) {
     return this.machines.create(body, user);
+  }
+
+  // superuser-only, deliberately not admin — this is the one narrow exception
+  // to "machine always decides" (see the plan's "Super-user remote commands"
+  // section), scoped to the single role built for full accountability.
+  @Roles('superuser')
+  @Post(':id/commands')
+  sendCommand(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(sendMachineCommandSchema)) body: SendMachineCommandInput,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.machines.sendCommand(id, body, user);
+  }
+
+  @Roles('superuser')
+  @Get(':id/commands')
+  listCommands(@Param('id') id: string) {
+    return this.machines.listCommands(id);
   }
 }

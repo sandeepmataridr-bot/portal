@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package vigil.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "vigil/gen/go/vigil/v1;vigilv1";
+
+// One entry in the hash-chained audit ledger.
+message AuditRecord {
+  int64  seq       = 1;
+  google.protobuf.Timestamp recorded_time = 2;
+  string kind      = 3;  // "alert_raised", "association", "driver_fault", ...
+  string data_json = 4;
+  string prev_hash = 5;  // hex SHA-256 of the previous record
+  string hash      = 6;  // hex SHA-256 over seq, recorded_time, kind, data, prev_hash
+}

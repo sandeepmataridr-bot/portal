@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type {
   RegisterPatientInput,
@@ -8,7 +8,13 @@ import type {
 } from '@infusion/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { ReconciliationService } from '../reconciliation/reconciliation.service.js';
 import type { AuthenticatedUser } from '../auth/types.js';
+
+interface MachineActor {
+  machineId: string;
+  machineCode: string;
+}
 
 const patientInclude = {
   doctor: true,
@@ -26,6 +32,7 @@ export class PatientsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly reconciliation: ReconciliationService,
   ) {}
 
   async register(input: RegisterPatientInput, actor: AuthenticatedUser) {
@@ -98,6 +105,78 @@ export class PatientsService {
     });
 
     return this.getById(patientId);
+  }
+
+  /**
+   * Bedside-originated patient — "machine is always correct," this only
+   * ever records what the machine reports, never rejects it (see the plan's
+   * M7 section). Runs inside SyncService's per-report transaction, not its
+   * own — one bad report in a push batch must not roll back the others.
+   * Idempotent on entityId: a retried push after a dropped connection must
+   * not double-create or error.
+   */
+  async registerFromMachine(
+    tx: Prisma.TransactionClient,
+    entityId: string,
+    payload: Record<string, unknown>,
+    actor: MachineActor,
+  ) {
+    const existing = await tx.patient.findUnique({ where: { id: entityId } });
+    if (existing) return existing; // idempotent replay of an earlier push
+
+    const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
+    const age = typeof payload.age === 'number' ? payload.age : Number(payload.age);
+    const gender = typeof payload.gender === 'string' ? payload.gender : '';
+    if (!fullName || !Number.isFinite(age) || age <= 0 || !gender) {
+      throw new BadRequestException('Bedside patient report requires at least fullName, age, and gender');
+    }
+    const mobile = typeof payload.mobile === 'string' ? payload.mobile : undefined;
+    const aadhar = typeof payload.aadhar === 'string' ? payload.aadhar : undefined;
+    const emergencyContact = typeof payload.emergencyContact === 'string' ? payload.emergencyContact : undefined;
+    const roomOrBed = typeof payload.roomOrBed === 'string' ? payload.roomOrBed : undefined;
+
+    const created = await tx.patient.create({
+      data: {
+        id: entityId,
+        fullName,
+        age: Math.trunc(age),
+        gender,
+        mobile,
+        aadhar,
+        emergencyContact,
+        roomOrBed,
+        registeredByMachineId: actor.machineId,
+        needsReceptionCompletion: true,
+      },
+    });
+
+    await tx.patientHistory.create({
+      data: {
+        patientId: created.id,
+        version: 1,
+        action: 'REGISTER',
+        snapshot: toSnapshot(created),
+        actorType: 'machine',
+        actorMachineId: actor.machineId,
+        actedBy: actor.machineCode,
+      },
+    });
+
+    const candidates = await this.reconciliation.findPatientDuplicates({ fullName, age: Math.trunc(age), gender, aadhar });
+    if (candidates.length > 0) {
+      await this.reconciliation.record(tx, 'patient_duplicate', actor.machineId, 'patient', created.id, { fullName, age, gender, aadhar }, candidates);
+    }
+
+    await this.audit.log({
+      actorType: 'machine',
+      actorMachineId: actor.machineId,
+      action: 'PATIENT_REGISTERED',
+      entityTable: 'patients',
+      entityId: created.id,
+      after: { fullName, age, gender },
+    });
+
+    return created;
   }
 
   async list(search?: string, doctorId?: string) {
@@ -188,20 +267,7 @@ export class PatientsService {
   }
 
   async discharge(id: string, input: DischargePatientInput, actor: AuthenticatedUser) {
-    const patient = await this.prisma.patient.findUnique({ where: { id } });
-    if (!patient) throw new NotFoundException('Patient not found');
-    if (patient.discharged) throw new ConflictException('Patient is already discharged');
-
-    const nextVersion = patient.version + 1;
-    await this.prisma.$transaction(async (tx) => {
-      const result = await tx.patient.update({
-        where: { id },
-        data: { discharged: true, dischargeDate: new Date(), dischargeRemarks: input.remarks, version: nextVersion },
-      });
-      await tx.patientHistory.create({
-        data: { patientId: id, version: nextVersion, action: 'DISCHARGE', snapshot: toSnapshot(result), actedBy: actor.loginId },
-      });
-    });
+    await this.dischargeCore(id, input.remarks, { actorType: 'user', actorUserId: actor.id, actedBy: actor.loginId });
 
     await this.audit.log({
       actorUserId: actor.id,
@@ -212,6 +278,68 @@ export class PatientsService {
     });
 
     return this.getById(id);
+  }
+
+  /**
+   * Bedside discharge — travels as a `patient` sync report with a payload
+   * action marker (see SyncService.handleMachineOriginatedReport), reusing
+   * the exact same core write path as the staff-driven discharge above so
+   * the machine-assignment-closeout fix applies to both callers identically.
+   * Runs inside SyncService's own transaction, not its own.
+   */
+  async dischargeFromMachine(tx: Prisma.TransactionClient, id: string, actor: { machineId: string; machineCode: string }) {
+    await this.dischargeCore(id, undefined, { actorType: 'machine', actorMachineId: actor.machineId, actedBy: actor.machineCode }, tx);
+
+    await this.audit.log({
+      actorType: 'machine',
+      actorMachineId: actor.machineId,
+      action: 'PATIENT_DISCHARGED',
+      entityTable: 'patients',
+      entityId: id,
+    });
+  }
+
+  private async dischargeCore(
+    id: string,
+    remarks: string | undefined,
+    actorFields: { actorType: 'user' | 'machine'; actorUserId?: string; actorMachineId?: string; actedBy: string },
+    existingTx?: Prisma.TransactionClient,
+  ) {
+    const run = async (tx: Prisma.TransactionClient) => {
+      const patient = await tx.patient.findUnique({ where: { id } });
+      if (!patient) throw new NotFoundException('Patient not found');
+      if (patient.discharged) throw new ConflictException('Patient is already discharged');
+
+      const nextVersion = patient.version + 1;
+      const result = await tx.patient.update({
+        where: { id },
+        data: { discharged: true, dischargeDate: new Date(), dischargeRemarks: remarks, version: nextVersion },
+      });
+      await tx.patientHistory.create({
+        data: {
+          patientId: id,
+          version: nextVersion,
+          action: 'DISCHARGE',
+          snapshot: toSnapshot(result),
+          actorType: actorFields.actorType,
+          actorMachineId: actorFields.actorMachineId,
+          actedBy: actorFields.actedBy,
+        },
+      });
+      // A discharged patient must not keep showing as "actively assigned" to
+      // a machine indefinitely — close out every active assignment here
+      // rather than leaving it to whoever remembers to untag manually.
+      await tx.patientMachineAssignment.updateMany({
+        where: { patientId: id, unassignedAt: null },
+        data: { unassignedAt: new Date() },
+      });
+    };
+
+    if (existingTx) {
+      await run(existingTx);
+    } else {
+      await this.prisma.$transaction(run);
+    }
   }
 
   async updateClinical(id: string, input: PatientClinicalUpdateInput, actor: AuthenticatedUser) {

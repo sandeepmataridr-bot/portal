@@ -81,6 +81,15 @@ services:
       # browser actually sees, not this app's internal route.
       REFRESH_COOKIE_PATH: /api/auth
       CORS_ORIGINS: https://${DOMAIN}
+      # Vigil ECMO monitoring (docs/vigil/). TEST (simulated patients) unless
+      # explicitly switched. LIVE puts real patient data behind this domain:
+      # only on infrastructure covered by a BAA/DPA, never a free tier.
+      VIGIL_LIVE_MODE: ${VIGIL_LIVE_MODE:-false}
+      VIGIL_TEST_SCENARIO: ${VIGIL_TEST_SCENARIO:-ecmo/oxy_clot_01}
+      VIGIL_TEST_SPEED: ${VIGIL_TEST_SPEED:-60}
+      VIGIL_LIVE_TENANT_ID: ${VIGIL_LIVE_TENANT_ID:-}
+      VIGIL_LIVE_UNIT_ID: ${VIGIL_LIVE_UNIT_ID:-}
+      VIGIL_HL7_CODES: ${VIGIL_HL7_CODES:-}
     depends_on:
       postgres:
         condition: service_healthy

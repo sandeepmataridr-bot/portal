@@ -1,0 +1,53 @@
+{
+ "scenario": "ecmo/comm_drop_01",
+ "frames": {
+  "count": 4237,
+  "sha256": "36e616a1a4c1d2e7f250faf441eeacc9f98989ee2b15edae34c158810a3fc3d7",
+  "first": [
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-05|0.000|QB|4.0569|L/min"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-05|0.000|DPOXY|3.3169|kPa"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-05|0.000|SWEEP|3.0000|L/min"
+   ],
+   [
+    1.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-05|1.000|QB|4.0779|L/min"
+   ]
+  ]
+ },
+ "stats": {
+  "alerts_raised": 1,
+  "alerts_resolved": 1,
+  "flag:SETTING": 59,
+  "observations": 4237
+ },
+ "transitions": [
+  {
+   "kind": "raised",
+   "rule": "device.ecmo_comm_lost",
+   "priority": "HIGH",
+   "origin": "EDGE_SAFETY_FLOOR",
+   "at": 1810.0,
+   "explanation": "No data from the ECMO console for 11 s; the safety floor cannot watch blood flow."
+  },
+  {
+   "kind": "resolved",
+   "rule": "device.ecmo_comm_lost",
+   "priority": "HIGH",
+   "origin": "EDGE_SAFETY_FLOOR",
+   "at": 1930.0,
+   "explanation": "No data from the ECMO console for 11 s; the safety floor cannot watch blood flow."
+  }
+ ]
+}

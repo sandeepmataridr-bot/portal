@@ -1,0 +1,17 @@
+{
+  "description": "VA-ECMO, circuit kink at minute 60: blood flow falls from 4.1 to 0.6 L/min for 3 minutes, then recovers.",
+  "duration": "2h",
+  "seed": 404,
+  "encounter_id": "enc-sim-004",
+  "therapy": {"type": "ECMO", "episode_id": "ep-sim-004", "mode": "VA"},
+  "devices": [
+    {"device_id": "sim-ecmo-04", "driver": "sim_ecmo", "confirmed": true}
+  ],
+  "signals": {
+    "ECMO_BLOOD_FLOW":  {"device": "sim-ecmo-04", "period": "1s",  "noise": 0.05,
+                         "timeline": [["0min", 4.1], ["60min", 4.1], ["60min", 0.6], ["63min", 0.6], ["63min", 4.1]]},
+    "ECMO_OXY_DELTA_P": {"device": "sim-ecmo-04", "period": "5s",  "noise": 0.8, "timeline": [["0h", 25]]},
+    "ECMO_SWEEP_FLOW":  {"device": "sim-ecmo-04", "period": "60s", "timeline": [["0h", 3.0]]}
+  },
+  "annotations": [{"at": "60min", "label": "circuit kink, blood flow 0.6 L/min"}]
+}

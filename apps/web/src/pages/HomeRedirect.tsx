@@ -7,6 +7,7 @@ const ROLE_HOME: Record<string, string> = {
   reception: '/reception',
   pharmacy: '/pharmacy',
   insurance: '/insurance',
+  superuser: '/super',
 };
 
 /** Mirrors the reference app's `/` dispatch-by-role behavior. */

@@ -1,0 +1,17 @@
+{
+  "description": "VA-ECMO, the console stops sending data for 2 minutes at minute 30 (cable unplugged). Physiology is stable.",
+  "duration": "1h",
+  "seed": 505,
+  "encounter_id": "enc-sim-005",
+  "therapy": {"type": "ECMO", "episode_id": "ep-sim-005", "mode": "VA"},
+  "devices": [
+    {"device_id": "sim-ecmo-05", "driver": "sim_ecmo", "confirmed": true}
+  ],
+  "signals": {
+    "ECMO_BLOOD_FLOW":  {"device": "sim-ecmo-05", "period": "1s",  "noise": 0.05, "timeline": [["0h", 4.0]]},
+    "ECMO_OXY_DELTA_P": {"device": "sim-ecmo-05", "period": "5s",  "noise": 0.8,  "timeline": [["0h", 25]]},
+    "ECMO_SWEEP_FLOW":  {"device": "sim-ecmo-05", "period": "60s", "timeline": [["0h", 3.0]]}
+  },
+  "outages": [{"device": "sim-ecmo-05", "start": "30min", "length": "2min"}],
+  "annotations": [{"at": "30min", "label": "console data lost"}]
+}

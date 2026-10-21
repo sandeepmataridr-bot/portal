@@ -1,4 +1,4 @@
-export const ROLES = ['admin', 'doctor', 'reception', 'pharmacy', 'insurance'] as const;
+export const ROLES = ['admin', 'doctor', 'reception', 'pharmacy', 'insurance', 'superuser'] as const;
 export type Role = (typeof ROLES)[number];
 
 /**
@@ -31,4 +31,8 @@ export const ROLE_CAPABILITIES: Record<Role, readonly string[]> = {
     'medicine-requests:fulfill',
   ],
   insurance: ['claims:decide', 'claims:revoke'],
+  // Full access to every other role's capabilities above, from one login —
+  // confirmed as a distinct role, not an admin extension (see RolesGuard's
+  // comment). Every action still logs this account's own real identity.
+  superuser: ['*'],
 } as const;

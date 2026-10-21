@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package vigil.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "vigil/gen/go/vigil/v1;vigilv1";
+
+// Driver ABI: what a sandboxed driver sends to the edge over its Unix socket.
+// Values are in the device's own codes and units; the normalizer maps them.
+message RawSample {
+  string device_id     = 1;
+  string vendor_code   = 2;
+  double value         = 3;
+  string unit          = 4;  // as reported by the device (UCUM where possible)
+  google.protobuf.Timestamp device_time = 5;
+  repeated string flags = 6;
+}

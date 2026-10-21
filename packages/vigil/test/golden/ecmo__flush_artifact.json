@@ -1,0 +1,35 @@
+{
+ "scenario": "ecmo/flush_artifact",
+ "frames": {
+  "count": 35048,
+  "sha256": "2e9fd654b4ce15904001b4ad42bfb15be12d529dc00b9c6693f218b68a1b7a60",
+  "first": [
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-03|0.000|QB|4.1291|L/min"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-03|0.000|DPOXY|3.5286|kPa"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-03|0.000|SWEEP|3.0000|L/min"
+   ],
+   [
+    0.0,
+    "hl7_pcd01",
+    "MSH|^~\\&|SIM_BGA|SIMLAB|VIGIL|EDGE|19700101000000||ORU^R01^ORU_R01|SIM000001|P|2.6\rOBR|1|||BG^Blood gas^L|||19700101000000\rOBX|1|NM|POST_OXY_PO2^Post-oxygenator pO2^L||190.0|mm[Hg]^mm[Hg]^UCUM|||||F|||19700101000000||||sim-bga-03\r"
+   ]
+  ]
+ },
+ "stats": {
+  "flag:FLUSH": 432,
+  "flag:SETTING": 481,
+  "observations": 35048
+ },
+ "transitions": []
+}

@@ -1,0 +1,53 @@
+{
+ "scenario": "ecmo/flow_loss_01",
+ "frames": {
+  "count": 8763,
+  "sha256": "1343ff431058c8cba230691c4ed6a3d7fcd76d5d70721f277a7e8e6c39432c2c",
+  "first": [
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-04|0.000|QB|4.1435|L/min"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-04|0.000|DPOXY|3.5125|kPa"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-04|0.000|SWEEP|3.0000|L/min"
+   ],
+   [
+    1.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-04|1.000|QB|4.1266|L/min"
+   ]
+  ]
+ },
+ "stats": {
+  "alerts_raised": 1,
+  "alerts_resolved": 1,
+  "flag:SETTING": 121,
+  "observations": 8763
+ },
+ "transitions": [
+  {
+   "kind": "raised",
+   "rule": "ecmo.blood_flow_loss",
+   "priority": "HIGH",
+   "origin": "EDGE_SAFETY_FLOOR",
+   "at": 3605.0,
+   "explanation": "ECMO blood flow 0.6 L/min, below 1.5 L/min for 5 s."
+  },
+  {
+   "kind": "resolved",
+   "rule": "ecmo.blood_flow_loss",
+   "priority": "HIGH",
+   "origin": "EDGE_SAFETY_FLOOR",
+   "at": 3790.0,
+   "explanation": "ECMO blood flow 0.6 L/min, below 1.5 L/min for 5 s."
+  }
+ ]
+}

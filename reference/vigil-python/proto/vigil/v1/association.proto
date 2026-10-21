@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package vigil.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "vigil/gen/go/vigil/v1;vigilv1";
+
+enum AssociationMethod {
+  ASSOCIATION_METHOD_UNSPECIFIED = 0;
+  ADT_ONLY    = 1;
+  BARCODE     = 2;
+  NFC         = 3;
+  SDC_CONTEXT = 4;
+}
+
+message DeviceAssociation {
+  string association_id     = 1;
+  string device_id          = 2;
+  string encounter_id       = 3;
+  string therapy_episode_id = 4;  // optional
+  google.protobuf.Timestamp start = 5;
+  google.protobuf.Timestamp end   = 6;  // open while active
+  AssociationMethod method  = 7;
+  bool   confirmed          = 8;  // therapy rules run only when true
+  string confirmed_by       = 9;
+}

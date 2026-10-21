@@ -11,6 +11,7 @@ const SEED_USERS = [
   { loginId: 'reception', password: 'Reception@12345', role: 'reception' as const },
   { loginId: 'pharmacy', password: 'Pharmacy@12345', role: 'pharmacy' as const },
   { loginId: 'insurance', password: 'Insurance@12345', role: 'insurance' as const },
+  { loginId: 'superuser', password: 'Superuser@12345', role: 'superuser' as const },
 ];
 
 async function main() {

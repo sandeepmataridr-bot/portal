@@ -1,0 +1,24 @@
+{
+  "name": "@infusion/vigil",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Vigil ECMO monitoring engine: rule language (parser, unit type checker, runtime), normalizer, signal quality, alarms, hash-chained audit and scenario simulators. TypeScript port of reference/vigil-python (ADR-004).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "rules", "scenarios"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "golden": "py scripts/export_golden.py"
+  },
+  "dependencies": {
+    "@infusion/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

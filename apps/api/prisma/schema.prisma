@@ -17,6 +17,12 @@ enum Role {
   reception
   pharmacy
   insurance
+  // Full access to every other role's work — for the single accountable
+  // person covering shifts, never anonymized (every action still logs this
+  // user's own real id/loginId, same as any other role). Deliberately
+  // distinct from admin: admin manages the system, superuser does everyone's
+  // day-to-day clinical/financial work.
+  superuser
 }
 
 model User {
@@ -31,25 +37,34 @@ model User {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  doctorProfile          DoctorProfile?
-  refreshTokens          RefreshToken[]
-  auditLogs              AuditLog[]                 @relation("AuditActor")
-  patientsRegistered     Patient[]                  @relation("PatientRegisteredBy")
-  infusionOrders         InfusionOrder[]            @relation("OrderedBy")
-  stepEvents             InfusionStepEvent[]        @relation("StepEventActor")
-  machineAssignmentsMade PatientMachineAssignment[] @relation("MachineAssignedBy")
+  doctorProfile           DoctorProfile?
+  refreshTokens           RefreshToken[]
+  auditLogs               AuditLog[]                 @relation("AuditActor")
+  patientsRegistered      Patient[]                  @relation("PatientRegisteredBy")
+  infusionOrders          InfusionOrder[]            @relation("OrderedBy")
+  stepEvents              InfusionStepEvent[]        @relation("StepEventActor")
+  machineAssignmentsMade  PatientMachineAssignment[] @relation("MachineAssignedBy")
+  reconciliationsResolved ReconciliationItem[]
+  machineCommandsIssued   MachineCommand[]
+  vigilConfirmations      PatientMachineAssignment[] @relation("VigilConfirmedBy")
 
   @@map("users")
 }
 
+// userId is nullable to support a temporary, machine-created doctor
+// reference (emergency, offline case — see docs/sync-contract.md) that has
+// no login account. Admin can later "promote" one into a real account by
+// setting userId; until then it's purely an attribution/reference record.
 model DoctorProfile {
-  id            String    @id @default(uuid())
-  userId        String    @unique
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String
-  specialty     String?
-  qualification String?
-  patients      Patient[] @relation("PatientDoctor")
+  id                 String    @id @default(uuid())
+  userId             String?   @unique
+  user               User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String
+  specialty          String?
+  qualification      String?
+  isTemporary        Boolean   @default(false)
+  createdByMachineId String?
+  patients           Patient[] @relation("PatientDoctor")
 
   @@map("doctor_profiles")
 }
@@ -93,12 +108,15 @@ model Machine {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  credentials        MachineCredential[]
-  patientAssignments PatientMachineAssignment[]
-  infusionOrders     InfusionOrder[]
-  liveStatus         InfusionLiveStatus?
-  outboxEntries      SyncOutboxEntry[]
-  inboxLogs          SyncInboxLog[]
+  credentials         MachineCredential[]
+  patientAssignments  PatientMachineAssignment[]
+  infusionOrders      InfusionOrder[]
+  liveStatus          InfusionLiveStatus?
+  outboxEntries       SyncOutboxEntry[]
+  inboxLogs           SyncInboxLog[]
+  telemetryLogs       InfusionTelemetryLog[]
+  reconciliationItems ReconciliationItem[]
+  commands            MachineCommand[]
 
   @@map("machines")
 }
@@ -124,14 +142,21 @@ enum SyncStatus {
 
 model Patient {
   id               String  @id @default(uuid())
-  ipNumber         String  @unique
+  // Nullable to accommodate a bedside-minimal record (name/age/gender/room
+  // only — see needsReceptionCompletion below). The reception-authored path
+  // stays fully protected because registerPatientSchema (the Zod API
+  // boundary) still requires these fields for that path — only the DB-level
+  // guarantee loosens, consistent with this schema's "enforce at the
+  // service/validation layer, not the DB" philosophy used everywhere else.
+  ipNumber         String? @unique
   fullName         String
   age              Int
   gender           String
-  mobile           String
-  emergencyContact String
-  aadhar           String
+  mobile           String?
+  emergencyContact String?
+  aadhar           String?
   address          String?
+  roomOrBed        String?
 
   weightKg     Float?
   heightCm     Float?
@@ -163,8 +188,12 @@ model Patient {
   dischargeDate    DateTime?
   dischargeRemarks String?
 
-  registeredById String?
-  registeredBy   User?   @relation("PatientRegisteredBy", fields: [registeredById], references: [id])
+  registeredById           String?
+  registeredBy             User?   @relation("PatientRegisteredBy", fields: [registeredById], references: [id])
+  registeredByMachineId    String?
+  // True for a bedside-created record until reception fills in the rest
+  // (insurance, full contact details, etc.) — a worklist flag, not a block.
+  needsReceptionCompletion Boolean @default(false)
 
   version   Int       @default(1)
   deletedAt DateTime?
@@ -182,14 +211,20 @@ model Patient {
 }
 
 model PatientHistory {
-  id        String   @id @default(uuid())
-  patientId String
-  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  version   Int
-  action    String
-  snapshot  Json
-  actedBy   String?
-  createdAt DateTime @default(now())
+  id             String         @id @default(uuid())
+  patientId      String
+  patient        Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  version        Int
+  action         String
+  snapshot       Json
+  // actedBy stays the existing free-text label (loginId or machineCode);
+  // actorType/actorMachineId mirror the discriminator AuditLog already has,
+  // added here for the same "who really did this" requirement, machine half
+  // included. Default 'user' keeps every existing call site unchanged.
+  actorType      AuditActorType @default(user)
+  actorMachineId String?
+  actedBy        String?
+  createdAt      DateTime       @default(now())
 
   @@index([patientId])
   @@map("patient_history")
@@ -345,16 +380,17 @@ enum AuditActorType {
 }
 
 model AuditLog {
-  id          String         @id @default(uuid())
-  actorUserId String?
-  actor       User?          @relation("AuditActor", fields: [actorUserId], references: [id])
-  actorType   AuditActorType
-  action      String
-  entityTable String
-  entityId    String?
-  before      Json?
-  after       Json?
-  createdAt   DateTime       @default(now())
+  id             String         @id @default(uuid())
+  actorUserId    String?
+  actor          User?          @relation("AuditActor", fields: [actorUserId], references: [id])
+  actorType      AuditActorType
+  actorMachineId String?
+  action         String
+  entityTable    String
+  entityId       String?
+  before         Json?
+  after          Json?
+  createdAt      DateTime       @default(now())
 
   @@index([entityTable, entityId])
   @@map("audit_logs")
@@ -373,19 +409,30 @@ model AuditLog {
 // bookkeeping and should be created as `accepted` immediately — there's no
 // device round-trip to wait for.
 model PatientMachineAssignment {
-  id           String     @id @default(uuid())
-  patientId    String
-  patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  machineId    String
-  machine      Machine    @relation(fields: [machineId], references: [id])
-  assignedById String?
-  assignedBy   User?      @relation("MachineAssignedBy", fields: [assignedById], references: [id])
-  assignedAt   DateTime   @default(now())
-  unassignedAt DateTime?
-  syncStatus   SyncStatus @default(pending_machine_ack)
-  version      Int        @default(1)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id                  String     @id @default(uuid())
+  patientId           String
+  patient             Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  machineId           String
+  machine             Machine    @relation(fields: [machineId], references: [id])
+  assignedById        String?
+  assignedBy          User?      @relation("MachineAssignedBy", fields: [assignedById], references: [id])
+  // Set when the machine itself created this assignment (bedside "new
+  // patient" flow) rather than staff via the dashboard — a different actor
+  // path, unrelated to the admin-only dashboard tagging RBAC change.
+  assignedByMachineId String?
+  assignedAt          DateTime   @default(now())
+  unassignedAt        DateTime?
+  syncStatus          SyncStatus @default(pending_machine_ack)
+  // Vigil (ECMO monitoring, docs/vigil/): a clinician's confirmation that
+  // this machine really is on this patient. Therapy rules run on a machine's
+  // data only once confirmed (plan epic 1.7) — tagging alone is not enough,
+  // since a mis-tagged console would raise alarms against the wrong patient.
+  vigilConfirmedAt    DateTime?
+  vigilConfirmedById  String?
+  vigilConfirmedBy    User?      @relation("VigilConfirmedBy", fields: [vigilConfirmedById], references: [id])
+  version             Int        @default(1)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   @@index([patientId])
   @@index([machineId])
@@ -400,20 +447,23 @@ enum InfusionOrderStatus {
 }
 
 model InfusionOrder {
-  id            String              @id @default(uuid())
-  patientId     String
-  patient       Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  id                 String              @id @default(uuid())
+  patientId          String
+  patient            Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
   // Which physical infusion pump this order targets — required because a
   // patient may have more than one machine assigned at once.
-  machineId     String
-  machine       Machine             @relation(fields: [machineId], references: [id])
-  orderedById   String
-  orderedBy     User                @relation("OrderedBy", fields: [orderedById], references: [id])
-  status        InfusionOrderStatus @default(draft)
-  clinicalNotes String?
-  version       Int                 @default(1)
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  machineId          String
+  machine            Machine             @relation(fields: [machineId], references: [id])
+  // Exactly one of orderedById/orderedByMachineId is set — enforced at the
+  // service layer, same as every other cross-entity precondition here.
+  orderedById        String?
+  orderedBy          User?               @relation("OrderedBy", fields: [orderedById], references: [id])
+  orderedByMachineId String?
+  status             InfusionOrderStatus @default(draft)
+  clinicalNotes      String?
+  version            Int                 @default(1)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   steps InfusionStep[]
 
@@ -431,8 +481,15 @@ model InfusionStep {
   orderId                String
   order                  InfusionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   stepNumber             Int
-  medicineId             String
-  medicine               Medicine      @relation(fields: [medicineId], references: [id])
+  // Exactly one of medicineId/medicineNameRaw is set, enforced at the
+  // service layer — mirrors the exact pattern MedicineRequest already uses.
+  // A bedside-configured step may reference a medicine not yet in the
+  // catalog; medicineNameRaw/concentrationRaw hold what the machine actually
+  // reported until reconciliation links it to a real Medicine row.
+  medicineId             String?
+  medicine               Medicine?     @relation(fields: [medicineId], references: [id])
+  medicineNameRaw        String?
+  concentrationRaw       String?
   rackNo                 Int?
   channelNo              Int?
   plannedVolumeMl        Float
@@ -495,6 +552,14 @@ model InfusionLiveStatus {
   flowRateMlPerH      Float     @default(0)
   infusedTimeMin      Float     @default(0)
   pumpState           PumpState @default(STOPPED)
+  // The real machine screen shows an independent "Working Mode" (e.g.
+  // Standby) and "Working Status" (e.g. Ready, AIR VENT ERROR) as two plain
+  // free-text values (confirmed reading InfusionMonitorActivity.kt directly)
+  // — too granular for the 3-value pumpState enum above, which stays as-is
+  // for whatever already depends on its coarse value.
+  workingMode         String?
+  workingStatusRaw    String?
+  pauseTimeSec        Int?
   lastUpdateAt        DateTime  @default(now())
 
   @@index([patientId])
@@ -535,4 +600,113 @@ model SyncInboxLog {
 
   @@index([machineId])
   @@map("sync_inbox_log")
+}
+
+// Append-only permanent record of every telemetry value a machine has ever
+// reported — distinct from InfusionLiveStatus (a single current-snapshot row
+// per machine, overwritten on every update). A rate adjustment mid-run with
+// no step-status change would otherwise leave no trace once overwritten;
+// this table is the permanent log, the live status row is just "what's
+// happening right now" for the dashboard. Never updated/deleted once
+// written — see the migration's REVOKE UPDATE, DELETE guard below.
+model InfusionTelemetryLog {
+  id                String    @id @default(uuid())
+  machineId         String
+  machine           Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  stepId            String?
+  flowRateMlPerH    Float
+  dispensedVolumeMl Float
+  remainingVolumeMl Float
+  pumpState         PumpState
+  workingMode       String?
+  workingStatusRaw  String?
+  pauseTimeSec      Int?
+  recordedAt        DateTime
+  receivedAt        DateTime  @default(now())
+
+  @@index([machineId])
+  @@map("infusion_telemetry_log")
+}
+
+enum ReconciliationKind {
+  patient_duplicate
+  medicine_match
+}
+
+enum ReconciliationStatus {
+  pending
+  resolved
+}
+
+// One shared review-queue mechanism for both patient dedup (bedside-created
+// patient that turns out to already exist from reception) and medicine
+// matching (bedside-configured step referencing a medicine name not yet in
+// the catalog) — never auto-merged, never blocking the machine. candidates
+// is Json rather than nullable FK columns, matching how SyncOutboxEntry/
+// InfusionStepEvent already use Json for flexible structured data.
+model ReconciliationItem {
+  id           String               @id @default(uuid())
+  kind         ReconciliationKind
+  machineId    String
+  machine      Machine              @relation(fields: [machineId], references: [id])
+  entityType   String
+  entityId     String
+  rawPayload   Json
+  candidates   Json?
+  status       ReconciliationStatus @default(pending)
+  resolvedById String?
+  resolvedBy   User?                @relation(fields: [resolvedById], references: [id])
+  resolution   String?
+  createdAt    DateTime             @default(now())
+  resolvedAt   DateTime?
+
+  @@index([status])
+  @@index([machineId])
+  @@map("reconciliation_items")
+}
+
+// The one deliberate exception to "machine always decides" — a real-time
+// command a superuser sends that the machine is expected to act on
+// (pause/resume/stop/flow-rate-adjust). commandType is a free string, not a
+// Prisma enum, matching Machine.machineType's own reasoning: ECMO/EBOO will
+// define their own command vocabularies later without a schema migration
+// each time — and today's endpoint only accepts this for machineType ===
+// 'INFUSION_PUMP' at the service layer regardless. Insert/status-update
+// only, never deleted — the single highest-stakes log entry in this system.
+model MachineCommand {
+  id          String    @id @default(uuid())
+  machineId   String
+  machine     Machine   @relation(fields: [machineId], references: [id])
+  commandType String
+  payload     Json?
+  issuedById  String
+  issuedBy    User      @relation(fields: [issuedById], references: [id])
+  issuedAt    DateTime  @default(now())
+  status      String    @default("SENT")
+  respondedAt DateTime?
+  result      Json?
+
+  @@index([machineId])
+  @@map("machine_commands")
+}
+
+// Vigil's hash-chained audit ledger (docs/vigil/, ADR-005/006): associations,
+// confirmations, alert raised/acknowledged/resolved, driver faults and run
+// start/end. One chain per operating mode — TEST and LIVE records never mix.
+// Each row carries the SHA-256 of the previous row of its chain, so an edit,
+// deletion or reordering breaks GET /vigil/audit/verify from that point on;
+// the immutability trigger in this table's migration blocks UPDATE/DELETE
+// outright. `data` is hashed in canonical JSON (sorted keys, no whitespace).
+model VigilAuditRecord {
+  id    String   @id @default(uuid())
+  mode  String
+  seq   Int
+  at    DateTime
+  kind  String
+  data  Json
+  prev  String
+  hash  String
+
+  @@unique([mode, seq])
+  @@map("vigil_audit_ledger")
 }

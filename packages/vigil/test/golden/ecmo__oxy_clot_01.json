@@ -1,0 +1,44 @@
+{
+ "scenario": "ecmo/oxy_clot_01",
+ "frames": {
+  "count": 35049,
+  "sha256": "8141316561c65b0fcc392254f9b5c134a4f32e4627e0fabdf9f1b8356cc81123",
+  "first": [
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-01|0.000|QB|4.1713|L/min"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-01|0.000|DPOXY|3.2367|kPa"
+   ],
+   [
+    0.0,
+    "sim_ecmo",
+    "SC1|sim-ecmo-01|0.000|SWEEP|3.0000|L/min"
+   ],
+   [
+    0.0,
+    "hl7_pcd01",
+    "MSH|^~\\&|SIM_BGA|SIMLAB|VIGIL|EDGE|19700101000000||ORU^R01^ORU_R01|SIM000001|P|2.6\rOBR|1|||BG^Blood gas^L|||19700101000000\rOBX|1|NM|POST_OXY_PO2^Post-oxygenator pO2^L||452.0|mm[Hg]^mm[Hg]^UCUM|||||F|||19700101000000||||sim-bga-01\r"
+   ]
+  ]
+ },
+ "stats": {
+  "alerts_raised": 1,
+  "flag:SETTING": 481,
+  "observations": 35049
+ },
+ "transitions": [
+  {
+   "kind": "raised",
+   "rule": "ecmo.oxygenator_failure_trend",
+   "priority": "MEDIUM",
+   "origin": "CORE",
+   "at": 18900.0,
+   "explanation": "Oxygenator pressure drop rising 4.1 mmHg/h with post-oxygenator PO2 176 mmHg."
+  }
+ ]
+}

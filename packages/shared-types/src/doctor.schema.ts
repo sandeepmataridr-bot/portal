@@ -14,14 +14,19 @@ export const updateDoctorSchema = z.object({
 });
 export type UpdateDoctorInput = z.infer<typeof updateDoctorSchema>;
 
+// userId/loginId are nullable and isActive defaults true for a temporary,
+// machine-created doctor reference (emergency bedside case, no login
+// account — see docs/sync-contract.md) until admin promotes it into a real
+// account. isTemporary is the discriminator the UI badges on.
 export const doctorSummarySchema = z.object({
   id: z.string().uuid(),
-  userId: z.string().uuid(),
-  loginId: z.string(),
+  userId: z.string().uuid().nullable(),
+  loginId: z.string().nullable(),
   name: z.string(),
   qualification: z.string().nullable(),
   specialty: z.string().nullable(),
   isActive: z.boolean(),
+  isTemporary: z.boolean(),
 });
 export type DoctorSummary = z.infer<typeof doctorSummarySchema>;
 

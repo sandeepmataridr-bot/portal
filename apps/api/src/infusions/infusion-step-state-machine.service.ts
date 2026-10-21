@@ -30,15 +30,46 @@ export class InfusionStepStateMachineService {
   ) {
     const fromStatus = step.status as InfusionStepStatus;
     assertStepTransition(fromStatus, toStatus);
+    return this.applyTransition(tx, step.id, fromStatus, toStatus, actor, extraData, reason);
+  }
 
+  /**
+   * Machine-reported status — skips assertStepTransition deliberately. An
+   * offline machine may legitimately report DRAFT -> COMPLETED in one shot
+   * (it ran the whole thing while disconnected); the server's job here is
+   * to record what happened, not gate it — "machine is always correct" (see
+   * the plan's M7 section). Writes the exact same step-update + event-write
+   * shape as transition() so the audit trail looks identical either way.
+   */
+  async recordMachineReport(
+    tx: Tx,
+    step: { id: string; status: string },
+    toStatus: InfusionStepStatus,
+    machineId: string,
+    extraData: Record<string, unknown> = {},
+    reason?: string,
+  ) {
+    const fromStatus = step.status as InfusionStepStatus;
+    return this.applyTransition(tx, step.id, fromStatus, toStatus, { actorType: 'machine', actorMachineId: machineId }, extraData, reason);
+  }
+
+  private async applyTransition(
+    tx: Tx,
+    stepId: string,
+    fromStatus: InfusionStepStatus,
+    toStatus: InfusionStepStatus,
+    actor: TransitionActor,
+    extraData: Record<string, unknown>,
+    reason?: string,
+  ) {
     const updated = await tx.infusionStep.update({
-      where: { id: step.id },
+      where: { id: stepId },
       data: { status: toStatus, ...extraData },
     });
 
     await tx.infusionStepEvent.create({
       data: {
-        stepId: step.id,
+        stepId,
         fromStatus,
         toStatus,
         actorType: actor.actorType,

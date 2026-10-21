@@ -1,17 +1,16 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module.js';
+import { SyncOutboxModule } from './sync-outbox.module.js';
+import { PatientsModule } from '../patients/patients.module.js';
+import { InfusionsModule } from '../infusions/infusions.module.js';
+import { ReconciliationModule } from '../reconciliation/reconciliation.module.js';
+import { DoctorsModule } from '../doctors/doctors.module.js';
 import { SyncController } from './sync.controller.js';
 import { SyncService } from './sync.service.js';
-import { SyncOutboxService } from './sync-outbox.service.js';
-import { SyncGateway } from './sync.gateway.js';
-import { SyncDeliveryProcessor } from './sync-delivery.processor.js';
-import { MachineCredentialsService } from './machine-credentials.service.js';
-import { MachineAuthGuard } from './machine-auth.guard.js';
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, SyncOutboxModule, PatientsModule, InfusionsModule, ReconciliationModule, DoctorsModule],
   controllers: [SyncController],
-  providers: [SyncService, SyncOutboxService, SyncGateway, SyncDeliveryProcessor, MachineCredentialsService, MachineAuthGuard],
-  exports: [SyncOutboxService, SyncGateway, MachineCredentialsService],
+  providers: [SyncService],
 })
 export class SyncModule {}

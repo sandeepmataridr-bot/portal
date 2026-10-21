@@ -1,0 +1,23 @@
+// DRAFT: thresholds are placeholders pending clinical sign-off (plan epic 1.9 / 2.7).
+
+rule ecmo.oxygenator_failure_trend v3
+  owner      "ECMO program lead"
+  applies_to therapy ECMO
+  priority   MEDIUM
+  safety_floor false
+
+  let dp      = trend(ECMO_OXY_DELTA_P, window 6h, min_sqi 0.8)
+  let post_o2 = latest(BG_POST_OXY_PO2, max_age 4h)
+  let sweep   = setting(ECMO_SWEEP_FLOW)
+
+  when dp.slope > 2 mmHg/h
+   and post_o2 < 200 mmHg
+   and sweep.unchanged_for(2h)
+  for 15 min                       // persistence
+  clear_when dp.slope < 1 mmHg/h for 30 min   // hysteresis
+
+  explain "Oxygenator pressure drop rising {dp.slope} mmHg/h with post-oxygenator PO2 {post_o2}."
+
+  test "fires on clotting oxygenator"   scenario "ecmo/oxy_clot_01"     expect fire within 30 min
+  test "silent on stable run"           scenario "ecmo/stable_va_01"    expect no_fire
+  test "silent on flush artifact"       scenario "ecmo/flush_artifact"  expect no_fire

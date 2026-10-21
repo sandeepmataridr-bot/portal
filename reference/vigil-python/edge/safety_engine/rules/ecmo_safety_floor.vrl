@@ -1,0 +1,36 @@
+// ECMO safety floor: runs on the unit edge, with or without the core.
+// DRAFT: thresholds are placeholders pending clinical sign-off (plan epic 1.9).
+
+rule ecmo.blood_flow_loss v1
+  owner      "ECMO program lead"
+  applies_to therapy ECMO
+  priority   HIGH
+  safety_floor true
+
+  let flow = latest(ECMO_BLOOD_FLOW, max_age 5 s, min_sqi 0.5)
+
+  when flow < 1.5 L/min for 5 s
+  clear_when flow > 2.0 L/min for 10 s
+
+  explain "ECMO blood flow {flow}, below 1.5 L/min for 5 s."
+
+  test "fires on circuit kink"     scenario "ecmo/flow_loss_01"   expect fire within 30 s
+  test "silent on stable run"      scenario "ecmo/stable_va_01"   expect no_fire
+  test "silent on data gap"        scenario "ecmo/comm_drop_01"   expect no_fire
+
+
+rule device.ecmo_comm_lost v1
+  owner      "Biomed and ECMO program lead"
+  applies_to therapy ECMO
+  priority   HIGH
+  safety_floor true
+
+  let age = data_age(ECMO_BLOOD_FLOW)
+
+  when age > 10 s
+  clear_when age < 3 s for 10 s
+
+  explain "No data from the ECMO console for {age}; the safety floor cannot watch blood flow."
+
+  test "fires on console data loss"  scenario "ecmo/comm_drop_01"   expect fire within 30 s
+  test "silent on stable run"        scenario "ecmo/stable_va_01"   expect no_fire

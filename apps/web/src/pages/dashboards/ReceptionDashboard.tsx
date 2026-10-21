@@ -7,12 +7,15 @@ import { RegisterPatientModal } from '../../features/patients/RegisterPatientMod
 import { PatientDetailsModal } from '../../features/patients/PatientDetailsModal';
 import { DischargeConfirmModal } from '../../features/patients/DischargeConfirmModal';
 import { ReadmitModal } from '../../features/patients/ReadmitModal';
+import { useReconciliationQueue } from '../../features/reconciliation/api';
+import { ReviewQueueModal } from '../../features/reconciliation/ReviewQueueModal';
 
 type ActiveModal =
   | { kind: 'register' }
   | { kind: 'details'; patientId: string }
   | { kind: 'discharge'; patientId: string; patientName: string }
   | { kind: 'readmit'; patientId: string }
+  | { kind: 'review-queue' }
   | null;
 
 export function ReceptionDashboard() {
@@ -20,6 +23,7 @@ export function ReceptionDashboard() {
   const [modal, setModal] = useState<ActiveModal>(null);
   const { data: stats } = useReceptionDashboard();
   const { data: patients, isLoading } = usePatients(search);
+  const { data: pendingReviews } = useReconciliationQueue('pending');
 
   return (
     <AppShell title="🏥 Reception Dashboard">
@@ -29,6 +33,12 @@ export function ReceptionDashboard() {
         <StatTile label="Approved" value={stats?.approved ?? '…'} tone="success" />
         <StatTile label="Rejected" value={stats?.rejected ?? '…'} tone="danger" />
         <StatTile label="Discharged" value={stats?.discharged ?? '…'} tone="info" />
+        <StatTile
+          label="Pending Reviews"
+          value={pendingReviews?.length ?? '…'}
+          tone={pendingReviews?.length ? 'warning' : 'info'}
+          onClick={() => setModal({ kind: 'review-queue' })}
+        />
         <MachineStatusTile />
       </div>
 
@@ -105,6 +115,7 @@ export function ReceptionDashboard() {
         <DischargeConfirmModal patientId={modal.patientId} patientName={modal.patientName} onClose={() => setModal(null)} />
       )}
       {modal?.kind === 'readmit' && <ReadmitModal patientId={modal.patientId} onClose={() => setModal(null)} />}
+      {modal?.kind === 'review-queue' && <ReviewQueueModal onClose={() => setModal(null)} />}
     </AppShell>
   );
 }

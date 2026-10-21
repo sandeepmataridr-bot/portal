@@ -1,0 +1,19 @@
+{
+  "description": "Stable VA-ECMO run, 8 hours, no events.",
+  "duration": "8h",
+  "seed": 202,
+  "encounter_id": "enc-sim-002",
+  "therapy": {"type": "ECMO", "episode_id": "ep-sim-002", "mode": "VA"},
+  "devices": [
+    {"device_id": "sim-ecmo-02", "driver": "sim_ecmo", "confirmed": true},
+    {"device_id": "sim-bga-02", "driver": "hl7_pcd01", "confirmed": true}
+  ],
+  "signals": {
+    "ECMO_BLOOD_FLOW":  {"device": "sim-ecmo-02", "period": "1s",  "noise": 0.05, "timeline": [["0h", 4.0]]},
+    "ECMO_OXY_DELTA_P": {"device": "sim-ecmo-02", "period": "5s",  "noise": 0.8,  "timeline": [["0h", 24]]},
+    "ECMO_SWEEP_FLOW":  {"device": "sim-ecmo-02", "period": "60s", "timeline": [["0h", 2.5]]}
+  },
+  "labs": {
+    "BG_POST_OXY_PO2": {"device": "sim-bga-02", "samples": [["0h", 448], ["2h", 455], ["4h", 431], ["6h", 462]]}
+  }
+}

@@ -10,7 +10,12 @@ import type { AuthenticatedUser } from '../types.js';
  * Deny-by-default: a route with neither @Public() nor @Roles(...) is
  * rejected, not silently reachable by any authenticated user — this is the
  * mechanism behind the plan's "Strict Role-Based Access & Workflow
- * Enforcement" permission matrix. `admin` always passes.
+ * Enforcement" permission matrix. `admin` and `superuser` always pass —
+ * superuser is the new (M7) role built specifically to do every other
+ * role's day-to-day work from one login, with every action still
+ * attributed to its own real identity (never anonymized as "reception did
+ * this"); admin's bypass predates M7 and has simply never had a UI surface
+ * to exercise it beyond fleet/doctor management.
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -40,7 +45,7 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Not authenticated');
     }
 
-    if (user.role === 'admin' || requiredRoles.includes(user.role)) {
+    if (user.role === 'admin' || user.role === 'superuser' || requiredRoles.includes(user.role)) {
       return true;
     }
 

@@ -1,15 +1,24 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import type {
-  CreateInfusionOrderInput,
-  VerifyPharmacyDispenseInput,
-  OverrideStepInput,
+import type { Prisma } from '@prisma/client';
+import {
+  REALTIME_EVENTS,
+  type CreateInfusionOrderInput,
+  type VerifyPharmacyDispenseInput,
+  type OverrideStepInput,
 } from '@infusion/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { ReconciliationService } from '../reconciliation/reconciliation.service.js';
 import type { AuthenticatedUser } from '../auth/types.js';
 import { InfusionCapService } from './infusion-cap.service.js';
 import { InfusionStepStateMachineService } from './infusion-step-state-machine.service.js';
 import { SyncOutboxService } from '../sync/sync-outbox.service.js';
+import { SyncGateway } from '../sync/sync.gateway.js';
+
+interface MachineActor {
+  machineId: string;
+  machineCode: string;
+}
 
 @Injectable()
 export class InfusionsService {
@@ -19,7 +28,17 @@ export class InfusionsService {
     private readonly caps: InfusionCapService,
     private readonly stateMachine: InfusionStepStateMachineService,
     private readonly syncOutbox: SyncOutboxService,
+    private readonly reconciliation: ReconciliationService,
+    private readonly gateway: SyncGateway,
   ) {}
+
+  /** Broadcasts the current live-status row to every dashboard socket (plan § "Real-time live-status push"). */
+  private async broadcastLiveStatus(machineId: string) {
+    const status = await this.prisma.infusionLiveStatus.findUnique({ where: { machineId } });
+    if (status) {
+      this.gateway.broadcastToDashboard(REALTIME_EVENTS.infusionLiveStatusUpdated, status);
+    }
+  }
 
   async createOrder(input: CreateInfusionOrderInput, actor: AuthenticatedUser) {
     const patient = await this.prisma.patient.findUnique({ where: { id: input.patientId } });
@@ -80,7 +99,144 @@ export class InfusionsService {
       action: 'INFUSION_ORDER_CREATED',
       entityTable: 'infusion_orders',
       entityId: order.id,
-      after: { patientId: input.patientId, machineId: input.machineId, stepCount: order.steps.length },
+      // Full step configuration, not just a count — this audit entry is the
+      // permanent, immutable record of exactly what was ordered (see the
+      // plan's "immutable audit trail" section); the current InfusionStep
+      // row isn't itself update-guarded, so this is the one place that
+      // guarantees the original configuration survives unaltered.
+      after: {
+        patientId: input.patientId,
+        machineId: input.machineId,
+        steps: order.steps.map((s) => ({
+          stepNumber: s.stepNumber,
+          medicineId: s.medicineId,
+          plannedVolumeMl: s.plannedVolumeMl,
+          plannedRateMlPerH: s.plannedRateMlPerH,
+        })),
+      },
+    });
+
+    return order;
+  }
+
+  /**
+   * Bedside-originated order — "machine is always correct." Cap checks
+   * still run (defense in depth / dashboard visibility) but only ever
+   * RECORD a violation on the step event, never block, unlike createOrder's
+   * hard gate — the machine already decided and ran this, the server's job
+   * is to reflect it accurately, not re-litigate it. Idempotent on entityId.
+   */
+  async createOrderFromMachine(
+    tx: Prisma.TransactionClient,
+    entityId: string,
+    payload: {
+      patientId: string;
+      clinicalNotes?: string;
+      steps: Array<{
+        id: string;
+        stepNumber: number;
+        medicineId?: string;
+        medicineName?: string;
+        concentrationRaw?: string;
+        plannedVolumeMl: number;
+        plannedRateMlPerH: number;
+        status?: string;
+      }>;
+    },
+    actor: MachineActor,
+  ) {
+    const existing = await tx.infusionOrder.findUnique({ where: { id: entityId } });
+    if (existing) return existing; // idempotent replay of an earlier push
+
+    if (!payload.patientId || !Array.isArray(payload.steps) || payload.steps.length === 0) {
+      throw new BadRequestException('Bedside order report requires patientId and at least one step');
+    }
+
+    // Reuse assignPatientToMachine's own invariant instead of a bare upsert:
+    // close out a genuinely different active assignment first, no-op if
+    // it's already this patient — never leave two active assignments on one
+    // machine (see MachinesService.assignPatientToMachine and the schema
+    // comment on PatientMachineAssignment).
+    const activeAssignment = await tx.patientMachineAssignment.findFirst({
+      where: { machineId: actor.machineId, unassignedAt: null },
+    });
+    if (activeAssignment && activeAssignment.patientId !== payload.patientId) {
+      await tx.patientMachineAssignment.update({ where: { id: activeAssignment.id }, data: { unassignedAt: new Date() } });
+    }
+    if (!activeAssignment || activeAssignment.patientId !== payload.patientId) {
+      await tx.patientMachineAssignment.create({
+        data: { patientId: payload.patientId, machineId: actor.machineId, assignedByMachineId: actor.machineId, syncStatus: 'accepted' },
+      });
+    }
+
+    const order = await tx.infusionOrder.create({
+      data: {
+        id: entityId,
+        patientId: payload.patientId,
+        machineId: actor.machineId,
+        orderedByMachineId: actor.machineId,
+        clinicalNotes: payload.clinicalNotes,
+        status: 'submitted',
+        steps: {
+          create: payload.steps.map((s) => ({
+            id: s.id,
+            stepNumber: s.stepNumber,
+            medicineId: s.medicineId,
+            medicineNameRaw: s.medicineId ? undefined : s.medicineName,
+            concentrationRaw: s.medicineId ? undefined : s.concentrationRaw,
+            plannedVolumeMl: s.plannedVolumeMl,
+            plannedRateMlPerH: s.plannedRateMlPerH,
+            status: s.status ?? 'RUNNING',
+          })),
+        },
+      },
+      include: { steps: true },
+    });
+
+    for (const step of order.steps) {
+      if (step.medicineId) {
+        const capResult = await this.caps.check(step.medicineId, {
+          volumeMl: step.plannedVolumeMl,
+          rateMlPerH: step.plannedRateMlPerH,
+        });
+        if (!capResult.ok) {
+          await tx.infusionStepEvent.create({
+            data: {
+              stepId: step.id,
+              fromStatus: step.status,
+              toStatus: step.status,
+              actorType: 'machine',
+              actorMachineId: actor.machineId,
+              reason: 'Cap check on bedside-authored step — recorded only, not enforced',
+              payload: { capCheck: capResult } as unknown as Prisma.InputJsonValue,
+            },
+          });
+        }
+      } else if (step.medicineNameRaw) {
+        const candidates = await this.reconciliation.findMedicineMatches(step.medicineNameRaw, step.concentrationRaw);
+        await this.reconciliation.record(
+          tx,
+          'medicine_match',
+          actor.machineId,
+          'infusion_step',
+          step.id,
+          { medicineName: step.medicineNameRaw, concentrationRaw: step.concentrationRaw },
+          candidates,
+        );
+      }
+    }
+
+    await this.audit.log({
+      actorType: 'machine',
+      actorMachineId: actor.machineId,
+      action: 'INFUSION_ORDER_CREATED',
+      entityTable: 'infusion_orders',
+      entityId: order.id,
+      after: {
+        patientId: payload.patientId,
+        machineId: actor.machineId,
+        steps: order.steps.map((s) => ({ stepNumber: s.stepNumber, medicineId: s.medicineId, medicineNameRaw: s.medicineNameRaw, plannedVolumeMl: s.plannedVolumeMl, plannedRateMlPerH: s.plannedRateMlPerH })),
+      },
     });
 
     return order;
@@ -129,6 +285,13 @@ export class InfusionsService {
       include: { medicine: true },
     });
     if (!step) throw new NotFoundException('Step not found');
+    const medicine = step.medicine;
+    if (!medicine) {
+      throw new ConflictException({
+        code: 'MEDICINE_UNRESOLVED',
+        message: 'This step references a medicine name reported by a machine, not yet linked to a catalog entry — resolve it in the reconciliation queue first',
+      });
+    }
 
     // The literal cross-role validation chain: what pharmacy is dispensing
     // must match exactly what the doctor ordered.
@@ -153,7 +316,7 @@ export class InfusionsService {
         { pharmacyVerifiedById: actor.id, pharmacyVerifiedAt: new Date() },
       );
 
-      if (step.medicine.highAlert) {
+      if (medicine.highAlert) {
         return this.stateMachine.transition(tx, verified, 'PENDING_SECOND_CONFIRMATION', {
           actorType: 'user',
           actorUserId: actor.id,
@@ -175,7 +338,7 @@ export class InfusionsService {
   async confirmHighAlert(stepId: string, actor: AuthenticatedUser) {
     const step = await this.prisma.infusionStep.findUnique({ where: { id: stepId }, include: { medicine: true } });
     if (!step) throw new NotFoundException('Step not found');
-    if (!step.medicine.highAlert) throw new BadRequestException('This medicine does not require a second confirmation');
+    if (!step.medicine?.highAlert) throw new BadRequestException('This medicine does not require a second confirmation');
     if (step.pharmacyVerifiedById === actor.id) {
       throw new ForbiddenException('High-alert confirmation must come from a different staff member than the pharmacy verifier');
     }
@@ -203,6 +366,13 @@ export class InfusionsService {
       include: { medicine: true, order: true },
     });
     if (!step) throw new NotFoundException('Step not found');
+    const medicine = step.medicine;
+    if (!medicine || !step.medicineId) {
+      throw new ConflictException({
+        code: 'MEDICINE_UNRESOLVED',
+        message: 'This step references a medicine name reported by a machine, not yet linked to a catalog entry — resolve it in the reconciliation queue first',
+      });
+    }
 
     // Defense in depth: re-check caps at execution time, not just at authoring.
     const capResult = await this.caps.check(step.medicineId, {
@@ -233,7 +403,7 @@ export class InfusionsService {
           patientId: step.order.patientId,
           machineId: step.order.machineId,
           stepId: step.id,
-          currentMedicineName: step.medicine.name,
+          currentMedicineName: medicine.name,
           remainingVolumeMl: step.plannedVolumeMl,
           dispensedVolumeMl: 0,
           flowRateMlPerH: step.plannedRateMlPerH,
@@ -242,7 +412,7 @@ export class InfusionsService {
         update: {
           patientId: step.order.patientId,
           stepId: step.id,
-          currentMedicineName: step.medicine.name,
+          currentMedicineName: medicine.name,
           remainingVolumeMl: step.plannedVolumeMl,
           dispensedVolumeMl: 0,
           flowRateMlPerH: step.plannedRateMlPerH,
@@ -255,6 +425,7 @@ export class InfusionsService {
     });
 
     await this.audit.log({ actorUserId: actor.id, actorType: 'user', action: 'INFUSION_STEP_STARTED', entityTable: 'infusion_steps', entityId: step.id });
+    await this.broadcastLiveStatus(step.order.machineId);
     return updated;
   }
 
@@ -282,6 +453,7 @@ export class InfusionsService {
     });
 
     await this.audit.log({ actorUserId: actor.id, actorType: 'user', action: 'INFUSION_STEP_COMPLETED', entityTable: 'infusion_steps', entityId: stepId });
+    await this.broadcastLiveStatus(step.order.machineId);
     return updated;
   }
 
@@ -321,6 +493,9 @@ export class InfusionsService {
       entityTable: 'infusion_steps',
       entityId: stepId,
     });
+    if (Object.keys(liveStatusPatch).length > 0) {
+      await this.broadcastLiveStatus(step.order.machineId);
+    }
     return updated;
   }
 
@@ -334,6 +509,12 @@ export class InfusionsService {
     if (!step) throw new NotFoundException('Step not found');
 
     if (input.targetStatus === 'RUNNING') {
+      if (!step.medicineId) {
+        throw new ConflictException({
+          code: 'MEDICINE_UNRESOLVED',
+          message: 'This step references a medicine name reported by a machine, not yet linked to a catalog entry — resolve it in the reconciliation queue first',
+        });
+      }
       const capResult = await this.caps.check(step.medicineId, {
         volumeMl: step.plannedVolumeMl,
         rateMlPerH: step.plannedRateMlPerH,
@@ -387,6 +568,16 @@ export class InfusionsService {
       where: { patientId },
       include: { steps: { orderBy: { stepNumber: 'asc' }, include: { medicine: true } } },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Cross-patient queue — pharmacy verifies whatever's pending, not scoped
+  // to "my patients" the way the doctor's view is.
+  listStepsByStatus(status: string) {
+    return this.prisma.infusionStep.findMany({
+      where: { status },
+      include: { medicine: true, order: { include: { patient: true } } },
+      orderBy: { createdAt: 'asc' },
     });
   }
 

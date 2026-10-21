@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package vigil.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "vigil/gen/go/vigil/v1;vigilv1";
+
+// A chunk of one waveform channel. Stored as compressed segments in object storage.
+message WaveformSegment {
+  string association_id = 1;
+  string code_system    = 2;
+  string code           = 3;
+  string unit_ucum      = 4;
+  double sample_rate_hz = 5;
+  google.protobuf.Timestamp start = 6;
+  repeated float samples = 7;
+  repeated float sqi     = 8;  // one value per second of signal
+}

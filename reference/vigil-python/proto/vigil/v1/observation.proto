@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package vigil.v1;
+
+option go_package = "vigil/gen/go/vigil/v1;vigilv1";
+
+message Observation {
+  string association_id = 1;  // device↔encounter binding, never a bare bed
+  string code_system    = 2;  // "MDC", "LOINC", "VIGIL", or "VENDOR" when unmapped
+  string code           = 3;  // e.g. MDC_PRESS_BLD_ART_MEAN
+  double value          = 4;
+  string unit_ucum      = 5;
+  double raw_value      = 6;
+  string raw_unit       = 7;
+  float  sqi            = 8;  // 0..1 signal quality
+  repeated string flags = 9;  // "ARTIFACT", "FLUSH", "LEAD_OFF", "SETTING", "UNMAPPED", ...
+}

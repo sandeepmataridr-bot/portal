@@ -8,6 +8,8 @@ import { DoctorDashboard } from './pages/dashboards/DoctorDashboard';
 import { ReceptionDashboard } from './pages/dashboards/ReceptionDashboard';
 import { PharmacyDashboard } from './pages/dashboards/PharmacyDashboard';
 import { InsuranceDashboard } from './pages/dashboards/InsuranceDashboard';
+import { SuperUserDashboard } from './pages/dashboards/SuperUserDashboard';
+import { CentralStationPage } from './features/vigil/CentralStationPage';
 
 function App() {
   return (
@@ -52,6 +54,22 @@ function App() {
         element={
           <RequireRole allow={['insurance']}>
             <InsuranceDashboard />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/central-station"
+        element={
+          <RequireRole allow={['doctor', 'admin', 'superuser']}>
+            <CentralStationPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/super"
+        element={
+          <RequireRole allow={['superuser']}>
+            <SuperUserDashboard />
           </RequireRole>
         }
       />

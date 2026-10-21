@@ -1,14 +1,16 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   createInfusionOrderSchema,
   verifyPharmacyDispenseSchema,
   overrideStepSchema,
   rejectStepSchema,
+  INFUSION_STEP_STATUSES,
   ROLES,
   type CreateInfusionOrderInput,
   type VerifyPharmacyDispenseInput,
   type OverrideStepInput,
   type RejectStepInput,
+  type InfusionStepStatus,
 } from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -118,5 +120,14 @@ export class InfusionsController {
   @Get('machines/:machineId/live-status')
   liveStatus(@Param('machineId') machineId: string) {
     return this.infusions.getLiveStatus(machineId);
+  }
+
+  @Roles('admin', 'pharmacy')
+  @Get('infusion-steps')
+  listByStatus(@Query('status') status?: string) {
+    if (!status || !INFUSION_STEP_STATUSES.includes(status as InfusionStepStatus)) {
+      throw new BadRequestException(`status query param is required and must be one of: ${INFUSION_STEP_STATUSES.join(', ')}`);
+    }
+    return this.infusions.listStepsByStatus(status);
   }
 }

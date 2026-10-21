@@ -7,3 +7,5 @@ export * from './infusion.schema.js';
 export * from './machine.schema.js';
 export * from './sync.schema.js';
 export * from './insurance.schema.js';
+export * from './reconciliation.schema.js';
+export * from './vigil.schema.js';

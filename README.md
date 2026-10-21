@@ -9,8 +9,11 @@ Rebuilt from scratch in React + NestJS, using `I:\infusion_server` (Flask) only 
 - `apps/api` — NestJS backend (fleet dashboard, master registry, sync hub)
 - `apps/web` — React (Vite) frontend
 - `packages/shared-types` — zod schemas + the infusion state machine/cap logic, shared by both apps and by `docs/sync-contract.md`
+- `packages/vigil` — Vigil ECMO monitoring engine (rule language, signal quality, alarms, hash-chained audit, scenario simulators); runs inside the API, shown on the web's `/central-station` — see `docs/vigil/README.md`
+- `reference/vigil-python` — the Python reference prototype Vigil was ported from (read-only executable spec, ADR-004/006)
 - `infra/docker` — local dev Postgres + Redis
 - `docs/sync-contract.md` — the protocol the future Android pump-controller app implements against
+- `docs/vigil/` — Vigil plan, ADRs, protobuf contracts and integration guide
 
 ## Getting started
 

@@ -1,0 +1,53 @@
+# Vigil edge node configuration.
+#
+# ─── Operating mode ─────────────────────────────────────────────────────────
+#   live_mode = false  → TEST mode
+#       * data comes from device simulators driven by a patient scenario
+#       * simulated clock (runs faster than real time)
+#       * simulated drivers allowed; tenant/unit ids must start with "sim"
+#       * alarms go to the console only, every alert is tagged TEST
+#       * nurse call is never contacted; audit goes to var/test/
+#
+#   live_mode = true   → LIVE mode
+#       * data comes only from real device drivers (HL7 PCD-01 over MLLP)
+#       * wall clock
+#       * simulated drivers and scenario playback are refused
+#       * alarms go to the console and to the configured nurse-call adapter
+#       * audit goes to var/live/; the [live] section must be filled in
+#
+# The environment variable VIGIL_LIVE_MODE=true|false overrides this value.
+live_mode = false
+
+[test]
+tenant_id    = "sim-hospital"
+unit_id      = "sim-icu-1"
+edge_node_id = "sim-edge-a"
+scenario     = "ecmo/oxy_clot_01"   # default for `vigilctl.py run`
+speed        = 0                    # 0 = as fast as possible; 60 = one simulated minute per second
+tick_seconds = 1
+audit_path   = "var/test/audit.jsonl"
+
+[live]
+tenant_id    = ""                   # REQUIRED, e.g. "general-hospital"
+unit_id      = ""                   # REQUIRED, e.g. "cvicu-3"
+edge_node_id = ""                   # defaults to "<unit_id>-edge-a"
+tick_seconds = 1
+audit_path   = "var/live/audit.jsonl"
+hl7_host     = "127.0.0.1"          # set to the edge's device-VLAN address
+hl7_port     = 2575
+nurse_call     = "log"              # only "log" exists until a vendor adapter is certified
+nurse_call_log = "var/live/nurse_call.log"
+
+# Site-specific OBX-3 → Vigil signal mappings, added to edge/normalizer/maps/hl7_pcd01.json.
+# Key format is "<coding system>:<identifier>".
+[live.hl7_codes]
+# "L:POST_OXY_PO2" = "BG_POST_OXY_PO2"
+
+# One block per device. Therapy rules run only for confirmed associations.
+# [[live.associations]]
+# device_id    = "ecmo-console-07"
+# encounter_id = "ENC-000123"
+# therapy      = "ECMO"
+# episode_id   = "ECMO-2026-0042"
+# confirmed    = true
+# confirmed_by = "rn.jdoe (barcode)"

@@ -71,4 +71,12 @@ export class DoctorsController {
   history(@Param('id') id: string) {
     return this.doctors.getHistory(id);
   }
+
+  @Roles('admin')
+  // Credential-issuing endpoint, same reasoning as reset-password above.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post(':id/promote')
+  promote(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.doctors.promote(id, user);
+  }
 }

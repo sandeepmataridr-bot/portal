@@ -178,6 +178,9 @@ importers:
       '@infusion/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
+      '@infusion/vigil':
+        specifier: workspace:*
+        version: link:../../packages/vigil
       '@nestjs/common':
         specifier: ^12.0.1
         version: 12.0.3(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1)
@@ -376,6 +379,22 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@24.13.4)(jsdom@25.0.1(supports-color@8.1.1))(lightningcss@1.33.0)(supports-color@8.1.1)
+
+  packages/vigil:
+    dependencies:
+      '@infusion/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.4
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

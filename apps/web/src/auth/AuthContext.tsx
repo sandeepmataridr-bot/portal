@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { LoginInput, SessionUser } from '@infusion/shared-types';
 import { apiFetch, setAccessToken } from '../lib/api';
+import { connectRealtime, disconnectRealtime } from '../lib/realtime';
 
 interface LoginResponse {
   accessToken: string;
@@ -58,6 +59,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(accessToken);
     setUser(sessionUser);
   }, []);
+
+  // One socket for the whole app, tied to session presence — covers login,
+  // silent refresh-on-reload, and change-password's setSession the same way.
+  useEffect(() => {
+    if (user) {
+      connectRealtime();
+    } else {
+      disconnectRealtime();
+    }
+  }, [user]);
 
   return <AuthContext.Provider value={{ user, isLoading, login, logout, setSession }}>{children}</AuthContext.Provider>;
 }

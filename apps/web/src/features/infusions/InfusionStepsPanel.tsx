@@ -10,6 +10,9 @@ import {
   type InfusionStep,
 } from './api';
 import { CreateOrderModal } from './CreateOrderModal';
+import { VerifyDispenseModal } from './VerifyDispenseModal';
+import { ReasonActionModal } from './ReasonActionModal';
+import { OverrideModal } from './OverrideModal';
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Draft',
@@ -25,25 +28,83 @@ const STATUS_LABEL: Record<string, string> = {
   OVERRIDDEN: 'Overridden',
 };
 
-function StepActions({ step, patientId }: { step: InfusionStep; patientId: string }) {
+type StepModal =
+  | { kind: 'verify'; step: InfusionStep }
+  | { kind: 'reject'; step: InfusionStep }
+  | { kind: 'cancel'; step: InfusionStep }
+  | { kind: 'override'; step: InfusionStep }
+  | null;
+
+function StepActions({
+  step,
+  patientId,
+  onOpenModal,
+}: {
+  step: InfusionStep;
+  patientId: string;
+  onOpenModal: (modal: StepModal) => void;
+}) {
   const confirmHighAlert = useConfirmHighAlert(patientId);
   const start = useStartStep(patientId);
   const pause = usePauseStep(patientId);
   const resume = useResumeStep(patientId);
   const complete = useCompleteStep(patientId);
 
+  // Override is the admin/doctor escape hatch — available from any
+  // non-terminal, already-past-authoring state, not gated to one status.
+  const canOverride = ['READY', 'RUNNING', 'PAUSED'].includes(step.status);
+  const canReject = ['PENDING_PHARMACY_VERIFICATION', 'PHARMACY_VERIFIED', 'PENDING_SECOND_CONFIRMATION'].includes(step.status);
+  const canCancel = ['DRAFT', 'PENDING_PHARMACY_VERIFICATION', 'PHARMACY_VERIFIED', 'PENDING_SECOND_CONFIRMATION', 'READY'].includes(
+    step.status,
+  );
+
+  const rejectCancelButtons = (
+    <>
+      {canReject && (
+        <button type="button" className="btn-danger" onClick={() => onOpenModal({ kind: 'reject', step })}>
+          🚫 Reject
+        </button>
+      )}
+      {canCancel && (
+        <button type="button" className="btn-secondary" onClick={() => onOpenModal({ kind: 'cancel', step })}>
+          ✖ Cancel
+        </button>
+      )}
+      {canOverride && (
+        <button type="button" className="btn-warning" onClick={() => onOpenModal({ kind: 'override', step })}>
+          ⚠️ Override
+        </button>
+      )}
+    </>
+  );
+
   switch (step.status) {
+    case 'PENDING_PHARMACY_VERIFICATION':
+      return (
+        <div className="inline-buttons">
+          <button type="button" className="btn-primary" onClick={() => onOpenModal({ kind: 'verify', step })}>
+            🧪 Verify
+          </button>
+          {rejectCancelButtons}
+        </div>
+      );
     case 'PENDING_SECOND_CONFIRMATION':
       return (
-        <button type="button" className="btn-warning" onClick={() => confirmHighAlert.mutate(step.id)} disabled={confirmHighAlert.isPending}>
-          ⚠️ Confirm High-Alert
-        </button>
+        <div className="inline-buttons">
+          <button type="button" className="btn-warning" onClick={() => confirmHighAlert.mutate(step.id)} disabled={confirmHighAlert.isPending}>
+            ⚠️ Confirm High-Alert
+          </button>
+          {rejectCancelButtons}
+        </div>
       );
     case 'READY':
       return (
-        <button type="button" className="btn-start" onClick={() => start.mutate(step.id)} disabled={start.isPending}>
-          ▶ Start
-        </button>
+        <div className="inline-buttons">
+          <button type="button" className="btn-start" onClick={() => start.mutate(step.id)} disabled={start.isPending}>
+            ▶ Start
+          </button>
+          {rejectCancelButtons}
+        </div>
       );
     case 'RUNNING':
       return (
@@ -54,6 +115,7 @@ function StepActions({ step, patientId }: { step: InfusionStep; patientId: strin
           <button type="button" className="btn-primary" onClick={() => complete.mutate(step.id)} disabled={complete.isPending}>
             ✅ Complete
           </button>
+          {rejectCancelButtons}
         </div>
       );
     case 'PAUSED':
@@ -65,6 +127,7 @@ function StepActions({ step, patientId }: { step: InfusionStep; patientId: strin
           <button type="button" className="btn-primary" onClick={() => complete.mutate(step.id)} disabled={complete.isPending}>
             ✅ Complete
           </button>
+          {rejectCancelButtons}
         </div>
       );
     default:
@@ -74,6 +137,7 @@ function StepActions({ step, patientId }: { step: InfusionStep; patientId: strin
 
 export function InfusionStepsPanel({ patientId, machineId }: { patientId: string; machineId: string | null }) {
   const [showCreateOrder, setShowCreateOrder] = useState(false);
+  const [stepModal, setStepModal] = useState<StepModal>(null);
   const { data: orders } = usePatientOrders(patientId);
   const { data: liveStatus } = useLiveStatus(machineId);
 
@@ -132,7 +196,7 @@ export function InfusionStepsPanel({ patientId, machineId }: { patientId: string
                   <span className={`status-badge status-${step.status.toLowerCase()}`}>{STATUS_LABEL[step.status] ?? step.status}</span>
                 </td>
                 <td>
-                  <StepActions step={step} patientId={patientId} />
+                  <StepActions step={step} patientId={patientId} onOpenModal={setStepModal} />
                 </td>
               </tr>
             ))}
@@ -143,6 +207,16 @@ export function InfusionStepsPanel({ patientId, machineId }: { patientId: string
 
       {showCreateOrder && machineId && (
         <CreateOrderModal patientId={patientId} machineId={machineId} onClose={() => setShowCreateOrder(false)} />
+      )}
+
+      {stepModal?.kind === 'verify' && (
+        <VerifyDispenseModal step={stepModal.step} patientId={patientId} onClose={() => setStepModal(null)} />
+      )}
+      {(stepModal?.kind === 'reject' || stepModal?.kind === 'cancel') && (
+        <ReasonActionModal step={stepModal.step} patientId={patientId} action={stepModal.kind} onClose={() => setStepModal(null)} />
+      )}
+      {stepModal?.kind === 'override' && (
+        <OverrideModal step={stepModal.step} patientId={patientId} onClose={() => setStepModal(null)} />
       )}
     </div>
   );

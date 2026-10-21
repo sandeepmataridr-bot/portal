@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package vigil.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "vigil/gen/go/vigil/v1;vigilv1";
+
+message TherapyEpisode {
+  string episode_id   = 1;
+  string encounter_id = 2;
+  string therapy      = 3;  // "ECMO", "IABP", ...
+  google.protobuf.Timestamp start = 4;
+  google.protobuf.Timestamp end   = 5;  // open while running
+  map<string, string> attributes  = 6;  // e.g. mode = "VA"
+}
+
+// Circuit component change, e.g. oxygenator swap. Resets component age.
+message ComponentChange {
+  string episode_id = 1;
+  string component  = 2;
+  google.protobuf.Timestamp at = 3;
+  string reason     = 4;
+}

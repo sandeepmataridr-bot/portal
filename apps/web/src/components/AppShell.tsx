@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
@@ -9,6 +10,11 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       <header className="app-shell__header">
         <h2>{title}</h2>
         <div className="app-shell__nav">
+          {user && ['doctor', 'admin', 'superuser'].includes(user.role) && (
+            <Link className="app-shell__link" to="/central-station">
+              ECMO central station
+            </Link>
+          )}
           {user && <span className="app-shell__user">{user.loginId} · {user.role}</span>}
           <button type="button" onClick={() => void logout()}>
             Logout

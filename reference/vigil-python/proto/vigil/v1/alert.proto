@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package vigil.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "vigil/gen/go/vigil/v1;vigilv1";
+
+// Per IEC 60601-1-8.
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  HIGH     = 1;
+  MEDIUM   = 2;
+  LOW      = 3;
+  ADVISORY = 4;
+}
+
+enum AlertState {
+  ALERT_STATE_UNSPECIFIED = 0;
+  ACTIVE       = 1;
+  ACKNOWLEDGED = 2;
+  ESCALATED    = 3;
+  RESOLVED     = 4;
+  DISMISSED    = 5;
+}
+
+enum Origin {
+  ORIGIN_UNSPECIFIED = 0;
+  EDGE_SAFETY_FLOOR  = 1;
+  CORE               = 2;
+}
+
+message Alert {
+  string alert_id        = 1;
+  string encounter_id    = 2;
+  Priority priority      = 3;
+  string problem_key     = 4;  // groups findings into one clinical problem
+  repeated Finding findings = 5;
+  AlertState state       = 6;
+  string explanation     = 7;  // human-readable, clinical-lead-approved template
+  repeated string evidence_event_ids = 8;
+  Origin origin          = 9;
+  google.protobuf.Timestamp raised_time   = 10;
+  google.protobuf.Timestamp resolved_time = 11;
+  bool   test_mode       = 12; // raised in TEST mode; never routed to nurse call or EHR
+  string acknowledged_by = 13;
+}
+
+message Finding {
+  oneof source {
+    RuleHit  rule  = 1;
+    ModelHit model = 2;
+  }
+}
+
+message RuleHit {
+  string rule_id      = 1;
+  string rule_version = 2;
+}
+
+message ModelHit {
+  string model_id      = 1;
+  string model_version = 2;
+  float  probability   = 3;
+  float  ci_low        = 4;
+  float  ci_high       = 5;
+  int32  lead_time_min = 6;
+  repeated Contribution top_features = 7;
+}
+
+message Contribution {
+  string feature = 1;
+  float  weight  = 2;
+}

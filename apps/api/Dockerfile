@@ -1,5 +1,6 @@
 # Multi-stage build for @infusion/api. Build context must be the monorepo
-# root (pnpm workspace needs the root lockfile + packages/shared-types).
+# root (pnpm workspace needs the root lockfile + packages/shared-types and
+# packages/vigil — the Vigil engine, whose rules/ and scenarios/ ship with it).
 #
 #   docker build -f apps/api/Dockerfile -t infusion-api .
 #
@@ -18,8 +19,10 @@ FROM base AS build
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/api apps/api
 COPY packages/shared-types packages/shared-types
+COPY packages/vigil packages/vigil
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @infusion/shared-types build
+RUN pnpm --filter @infusion/vigil build
 RUN pnpm --filter @infusion/api prisma:generate
 RUN pnpm --filter @infusion/api build
 RUN pnpm --filter @infusion/api deploy --prod /deploy/api

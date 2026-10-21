@@ -29,6 +29,18 @@ export interface InfusionOrder {
   createdAt: string;
 }
 
+export interface StepWithOrderPatient extends InfusionStep {
+  order: InfusionOrder & { patient: { id: string; fullName: string; ipNumber: string } };
+}
+
+export function useStepsByStatus(status: string) {
+  return useQuery({
+    queryKey: ['infusion-steps', 'by-status', status],
+    queryFn: () => apiFetch<StepWithOrderPatient[]>(`/infusion-steps?${new URLSearchParams({ status })}`),
+    refetchInterval: 15_000,
+  });
+}
+
 export interface LiveStatus {
   machineId: string;
   patientId: string;
@@ -39,6 +51,11 @@ export interface LiveStatus {
   flowRateMlPerH: number;
   infusedTimeMin: number;
   pumpState: 'RUNNING' | 'PAUSED' | 'STOPPED';
+  // The machine screen's own free-text "Working Mode"/"Working Status" and
+  // pause timer (InfusionLiveStatus in schema.prisma), shown by MachineMirrorView.
+  workingMode?: string | null;
+  workingStatusRaw?: string | null;
+  pauseTimeSec?: number | null;
   lastUpdateAt: string;
 }
 
@@ -64,6 +81,7 @@ function useOrderMutations() {
   const invalidate = (patientId: string) => {
     queryClient.invalidateQueries({ queryKey: ['infusion-orders', 'patient', patientId] });
     queryClient.invalidateQueries({ queryKey: ['live-status'] });
+    queryClient.invalidateQueries({ queryKey: ['infusion-steps', 'by-status'] });
   };
   return { queryClient, invalidate };
 }
@@ -110,3 +128,27 @@ export const useStartStep = (patientId: string) => useStepAction(patientId, 'sta
 export const usePauseStep = (patientId: string) => useStepAction(patientId, 'pause');
 export const useResumeStep = (patientId: string) => useStepAction(patientId, 'resume');
 export const useCompleteStep = (patientId: string) => useStepAction(patientId, 'complete');
+
+function useStepActionWithReason(patientId: string, action: string) {
+  const { invalidate } = useOrderMutations();
+  return useMutation({
+    mutationFn: ({ stepId, reason }: { stepId: string; reason: string }) =>
+      apiFetch<InfusionStep>(`/infusion-steps/${stepId}/${action}`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    onSuccess: () => invalidate(patientId),
+  });
+}
+
+export const useRejectStep = (patientId: string) => useStepActionWithReason(patientId, 'reject');
+export const useCancelStep = (patientId: string) => useStepActionWithReason(patientId, 'cancel');
+
+export function useOverrideStep(patientId: string) {
+  const { invalidate } = useOrderMutations();
+  return useMutation({
+    mutationFn: ({ stepId, targetStatus, reason }: { stepId: string; targetStatus: 'RUNNING' | 'CANCELLED'; reason: string }) =>
+      apiFetch<InfusionStep>(`/infusion-steps/${stepId}/override`, {
+        method: 'POST',
+        body: JSON.stringify({ targetStatus, reason }),
+      }),
+    onSuccess: () => invalidate(patientId),
+  });
+}

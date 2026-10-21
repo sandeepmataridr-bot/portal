@@ -8,8 +8,12 @@ import { StockInModal } from '../../features/medicines/StockInModal';
 import { StockOutModal } from '../../features/medicines/StockOutModal';
 import { useMedicineRequests, useUpdateMedicineRequestStatus } from '../../features/medicine-requests/api';
 import type { Medicine } from '../../features/medicines/api';
+import { useStepsByStatus, type StepWithOrderPatient } from '../../features/infusions/api';
+import { VerifyDispenseModal } from '../../features/infusions/VerifyDispenseModal';
+import { ReasonActionModal } from '../../features/infusions/ReasonActionModal';
 
-type Tab = 'inventory' | 'stockin' | 'stockout' | 'audit' | 'requests';
+type Tab = 'inventory' | 'stockin' | 'stockout' | 'audit' | 'requests' | 'verification';
+type StepModal = { kind: 'verify' | 'reject'; step: StepWithOrderPatient } | null;
 
 function rowTone(m: Medicine): string {
   const now = new Date();
@@ -27,6 +31,7 @@ export function PharmacyDashboard() {
   const [modal, setModal] = useState<'add' | 'edit' | 'stockin' | 'stockout' | null>(null);
   const [editingMedicine, setEditingMedicine] = useState<Medicine | undefined>(undefined);
   const [search, setSearch] = useState('');
+  const [stepModal, setStepModal] = useState<StepModal>(null);
 
   const { data: dashboard } = useMedicineDashboard();
   const { data: medicines } = useMedicines();
@@ -35,6 +40,7 @@ export function PharmacyDashboard() {
   const { data: auditLogs } = useMedicinesAudit();
   const { data: requests } = useMedicineRequests();
   const updateRequestStatus = useUpdateMedicineRequestStatus();
+  const { data: pendingSteps } = useStepsByStatus('PENDING_PHARMACY_VERIFICATION');
 
   const filteredMedicines = medicines?.filter(
     (m) => !search || m.name.toLowerCase().includes(search.toLowerCase()) || (m.genericName ?? '').toLowerCase().includes(search.toLowerCase()),
@@ -48,17 +54,19 @@ export function PharmacyDashboard() {
         <StatTile label="Low Stock" value={dashboard?.lowStock ?? '…'} tone="warning" />
         <StatTile label="Expired" value={dashboard?.expired ?? '…'} tone="danger" />
         <StatTile label="Expiring Soon" value={dashboard?.expiringSoon ?? '…'} tone="warning" />
+        <StatTile label="Pending Verification" value={pendingSteps?.length ?? '…'} tone="warning" />
         <MachineStatusTile />
       </div>
 
       <div className="tabs">
-        {(['inventory', 'stockin', 'stockout', 'audit', 'requests'] as Tab[]).map((t) => (
+        {(['inventory', 'stockin', 'stockout', 'audit', 'requests', 'verification'] as Tab[]).map((t) => (
           <button key={t} type="button" className={`tab-button${tab === t ? ' tab-button--active' : ''}`} onClick={() => setTab(t)}>
             {t === 'inventory' && '📦 Inventory'}
             {t === 'stockin' && '📥 Stock In'}
             {t === 'stockout' && '📤 Stock Out'}
             {t === 'audit' && '📋 Audit Logs'}
             {t === 'requests' && '📨 Medicine Requests'}
+            {t === 'verification' && `🧪 Verify Dispense (${pendingSteps?.length ?? 0})`}
           </button>
         ))}
       </div>
@@ -257,6 +265,55 @@ export function PharmacyDashboard() {
         </div>
       )}
 
+      {tab === 'verification' && (
+        <div className="info-card">
+          <p className="form-hint">
+            Independently confirm what's actually being dispensed against what was ordered — a mismatch is rejected, not silently
+            allowed through.
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Step</th>
+                <th>Ordered Medicine</th>
+                <th>Volume (ml)</th>
+                <th>Rate (ml/h)</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingSteps?.length === 0 && (
+                <tr>
+                  <td colSpan={6}>Nothing pending verification.</td>
+                </tr>
+              )}
+              {pendingSteps?.map((step) => (
+                <tr key={step.id}>
+                  <td>
+                    {step.order.patient.fullName} ({step.order.patient.ipNumber})
+                  </td>
+                  <td>{step.stepNumber}</td>
+                  <td>
+                    {step.medicine.name} {step.medicine.highAlert ? '⚠️' : ''}
+                  </td>
+                  <td>{step.plannedVolumeMl}</td>
+                  <td>{step.plannedRateMlPerH}</td>
+                  <td>
+                    <button type="button" className="btn-primary" onClick={() => setStepModal({ kind: 'verify', step })}>
+                      🧪 Verify
+                    </button>{' '}
+                    <button type="button" className="btn-danger" onClick={() => setStepModal({ kind: 'reject', step })}>
+                      🚫 Reject
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {(modal === 'add' || modal === 'edit') && (
         <AddEditMedicineModal
           medicine={modal === 'edit' ? editingMedicine : undefined}
@@ -268,6 +325,13 @@ export function PharmacyDashboard() {
       )}
       {modal === 'stockin' && <StockInModal onClose={() => setModal(null)} />}
       {modal === 'stockout' && <StockOutModal onClose={() => setModal(null)} />}
+
+      {stepModal?.kind === 'verify' && (
+        <VerifyDispenseModal step={stepModal.step} patientId={stepModal.step.order.patient.id} onClose={() => setStepModal(null)} />
+      )}
+      {stepModal?.kind === 'reject' && (
+        <ReasonActionModal step={stepModal.step} patientId={stepModal.step.order.patient.id} action="reject" onClose={() => setStepModal(null)} />
+      )}
     </AppShell>
   );
 }

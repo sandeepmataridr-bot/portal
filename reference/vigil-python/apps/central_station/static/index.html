@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vigil Central Station</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M2 17h7l3-8 5 15 4-11 2 4h7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="brand-text"><strong>Vigil</strong><span>Central station</span></div>
+  </div>
+  <div class="unit-info"><span id="unit">-</span><span id="tenant" class="muted"></span></div>
+  <div id="mode-badge" class="mode-badge" hidden></div>
+  <div class="clock-block"><span id="clock" class="clock">--:--:--</span><span id="clock-sub" class="muted">connecting</span></div>
+  <div id="conn" class="conn" role="status"><span class="conn-dot"></span><span id="conn-text">Connecting</span></div>
+  <button id="theme-toggle" class="icon-btn" type="button" aria-label="Switch light or dark theme" title="Switch theme">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
+  </button>
+</header>
+
+<div id="op-level" class="op-level lvl-x" role="status" aria-live="polite">
+  <strong id="op-level-name">Operating level: unknown</strong>
+  <span id="op-level-text">Connecting to the edge node.</span>
+</div>
+
+<div id="test-bar" class="test-bar" hidden>
+  <div class="test-label"><strong>TEST MODE</strong><span>Simulated data from a patient scenario. Not for clinical use.</span></div>
+  <div class="test-controls">
+    <label>Scenario <select id="scenario-select"></select></label>
+    <label>Speed <select id="speed-select"></select></label>
+    <button id="restart-btn" class="btn" type="button">Restart</button>
+  </div>
+  <div class="progress" aria-label="Scenario progress">
+    <div class="progress-track"><div id="progress-fill" class="progress-fill"></div><div id="progress-marks"></div></div>
+    <span id="progress-text" class="muted"></span>
+  </div>
+  <p id="test-error" class="form-error" hidden></p>
+</div>
+
+<div id="conn-lost" class="conn-lost" role="alert" hidden>
+  <strong>Connection to the edge node lost.</strong> Values below are frozen at <span id="lost-at"></span> and may be out of date. Use the bedside devices.
+</div>
+
+<main class="layout">
+  <aside class="side">
+    <section class="panel alerts-panel" aria-labelledby="alerts-h">
+      <div class="panel-head">
+        <h2 id="alerts-h">Active alerts <span id="alert-count" class="count">0</span></h2>
+      </div>
+      <label class="ack-as">Acknowledge as <input id="ack-name" type="text" autocomplete="name" placeholder="Your name" maxlength="80"></label>
+      <div id="alerts" class="alerts"></div>
+      <p id="alerts-empty" class="empty">No active alerts.</p>
+    </section>
+    <section class="panel" aria-labelledby="log-h">
+      <h2 id="log-h">Event log</h2>
+      <ol id="log" class="log"></ol>
+      <p id="log-empty" class="empty">Nothing yet.</p>
+    </section>
+    <section class="panel" aria-labelledby="rules-h">
+      <h2 id="rules-h">Rules running</h2>
+      <ul id="rules" class="rules"></ul>
+    </section>
+  </aside>
+
+  <section class="machines-col" aria-labelledby="machines-h">
+    <div class="toolbar">
+      <h2 id="machines-h">Machines <span id="machine-count" class="count">0</span></h2>
+      <div id="window-seg" class="seg" role="radiogroup" aria-label="Chart time window"></div>
+    </div>
+    <div id="machines" class="machines"></div>
+    <p id="machines-empty" class="empty big">Waiting for the edge node.</p>
+  </section>
+</main>
+
+<footer class="footer">
+  Vigil is a secondary alarm display. The bedside devices' own alarms remain primary.
+  <span id="footer-node" class="muted"></span>
+</footer>
+
+<div id="tooltip" class="tooltip" hidden></div>
+
+<div id="fallback" class="fallback" role="alertdialog" aria-labelledby="fallback-h" hidden>
+  <h1 id="fallback-h">Display error: showing active alarms only</h1>
+  <p>Part of the central station failed. Alarms below are still updating. Use the bedside devices and reload this page.</p>
+  <ul id="fallback-alarms"></ul>
+</div>
+</body>
+</html>

@@ -80,7 +80,10 @@ export class PatientsController {
     return this.patients.updateClinical(id, body, user);
   }
 
-  @Roles('admin', 'doctor', 'reception')
+  // Admin-only (narrowed from admin/doctor/reception — plan M7 §7): reverses
+  // the original M2 decision now that bedside machine-initiated tagging
+  // exists as a separate actor path (assignedByMachineId) with its own rules.
+  @Roles('admin')
   @Patch(':id/machine')
   tagMachine(
     @Param('id') id: string,
@@ -90,7 +93,7 @@ export class PatientsController {
     return this.machines.assignPatientToMachine(id, body.machineId, user);
   }
 
-  @Roles('admin', 'doctor', 'reception')
+  @Roles('admin')
   @Delete(':id/machine/:machineId')
   untagMachine(@Param('id') id: string, @Param('machineId') machineId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.machines.unassignPatientFromMachine(id, machineId, user);
