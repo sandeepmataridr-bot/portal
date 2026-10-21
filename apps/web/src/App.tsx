@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { RequireRole } from './auth/RequireRole';
 import { LoginPage } from './pages/LoginPage';
@@ -11,12 +12,25 @@ import { InsuranceDashboard } from './pages/dashboards/InsuranceDashboard';
 import { SuperUserDashboard } from './pages/dashboards/SuperUserDashboard';
 import { CentralStationPage } from './features/vigil/CentralStationPage';
 
+// The public landing page at the site root (https://0dh.in/). Lazy so its
+// canvas/icon code never weighs on the staff app, and vice versa.
+const WindLandingPage = lazy(() => import('./pages/landing/WindLandingPage').then((m) => ({ default: m.WindLandingPage })));
+
 function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/change-password" element={<ChangePasswordPage />} />
-      <Route path="/" element={<HomeRedirect />} />
+      <Route
+        path="/"
+        element={
+          <Suspense fallback={null}>
+            <WindLandingPage />
+          </Suspense>
+        }
+      />
+      {/* Staff entry point: dispatches to the signed-in role's dashboard (or /login). */}
+      <Route path="/app" element={<HomeRedirect />} />
       <Route
         path="/admin"
         element={

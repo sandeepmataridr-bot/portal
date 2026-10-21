@@ -21,7 +21,7 @@ export function LoginPage() {
     setServerError(null);
     try {
       const user = await login(data);
-      navigate(user.mustChangePassword ? '/change-password' : '/', { replace: true });
+      navigate(user.mustChangePassword ? '/change-password' : '/app', { replace: true });
     } catch (err) {
       setServerError(err instanceof ApiError ? err.message : 'Login failed. Please try again.');
     }

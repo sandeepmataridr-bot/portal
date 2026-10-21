@@ -219,7 +219,7 @@ function TopBar({ state, connection, onTheme }: { state: VigilState | null; conn
       </button>
       <div className="user-box">
         <span className="muted">{user?.loginId}</span>
-        <Link className="link" to="/">
+        <Link className="link" to="/app">
           Dashboard
         </Link>
         <button className="link" type="button" onClick={() => void logout()}>

@@ -12,7 +12,7 @@ export function RequireRole({ allow, children }: { allow: Role[]; children: Reac
 
   if (isLoading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  if (!allow.includes(user.role)) return <Navigate to="/" replace />;
+  if (!allow.includes(user.role)) return <Navigate to="/app" replace />;
   if (user.mustChangePassword) return <Navigate to="/change-password" replace />;
 
   return <>{children}</>;

@@ -10,7 +10,7 @@ const ROLE_HOME: Record<string, string> = {
   superuser: '/super',
 };
 
-/** Mirrors the reference app's `/` dispatch-by-role behavior. */
+/** Mirrors the reference app's `/` dispatch-by-role behavior; served at `/app` since `/` is the public landing page. */
 export function HomeRedirect() {
   const { user, isLoading } = useAuth();
   if (isLoading) return null;

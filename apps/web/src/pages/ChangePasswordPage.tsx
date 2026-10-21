@@ -30,7 +30,7 @@ export function ChangePasswordPage() {
       body: JSON.stringify(data),
     });
     setSession(result.accessToken, result.user);
-    navigate('/', { replace: true });
+    navigate('/app', { replace: true });
   };
 
   return (
