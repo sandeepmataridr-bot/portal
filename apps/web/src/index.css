@@ -87,6 +87,19 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px 16px;
+}
+
+/* The sign-in card, and beside it (below it on narrow screens) the test-mode
+   logins table when the API offers one. */
+.login-stack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 24px;
+  width: 100%;
+  max-width: 1040px;
 }
 
 .login-page form {
@@ -95,6 +108,7 @@ button {
   border-radius: 8px;
   padding: 32px;
   width: 320px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -109,7 +123,22 @@ button {
   color: var(--color-muted);
 }
 
-.login-page input {
+.login-brand h1 {
+  margin: 0;
+  font-size: 1.9rem;
+}
+
+.login-brand h1 span {
+  color: var(--color-primary);
+}
+
+.login-brand p {
+  margin: 2px 0 8px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.login-page input:not([type='radio']) {
   padding: 8px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -123,6 +152,113 @@ button {
   border-radius: 4px;
   padding: 10px;
   font-weight: 600;
+}
+
+.test-logins {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 24px;
+  flex: 1 1 520px;
+  max-width: 680px;
+  min-width: 0;
+}
+
+.test-logins h2 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.test-logins__badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: var(--color-warning);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.test-logins > p {
+  margin: 0 0 12px;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.test-logins__scroll {
+  overflow-x: auto;
+}
+
+.test-logins tbody tr {
+  cursor: pointer;
+}
+
+.test-logins tbody tr:hover {
+  background: var(--color-bg);
+}
+
+.test-logins tbody tr.is-picked {
+  background: #e8f5e9;
+}
+
+.test-logins th:first-child {
+  width: 32px;
+}
+
+.test-logins td {
+  white-space: nowrap;
+}
+
+.test-logins code {
+  font-size: 0.85rem;
+}
+
+/* Phones: each login becomes a short stacked block instead of a wide row. */
+@media (max-width: 560px) {
+  .test-logins {
+    padding: 18px 14px;
+  }
+
+  .test-logins thead {
+    display: none;
+  }
+
+  .test-logins table,
+  .test-logins tbody {
+    display: block;
+  }
+
+  .test-logins tbody tr {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    column-gap: 6px;
+    row-gap: 2px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .test-logins tbody td {
+    padding: 0;
+    border: 0;
+  }
+
+  .test-logins td:first-child {
+    grid-row: span 4;
+    align-self: center;
+  }
+
+  .test-logins td:nth-child(2) {
+    font-weight: 600;
+  }
+
+  .test-logins td[data-label]::before {
+    content: attr(data-label) ': ';
+    color: var(--color-muted);
+    font-size: 0.8rem;
+  }
 }
 
 [role='alert'] {

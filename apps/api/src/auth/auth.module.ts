@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { PasswordService } from './password.service.js';
 import { TokenService } from './token.service.js';
+import { TestLoginsService } from './test-logins.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 
@@ -16,6 +17,7 @@ import { RolesGuard } from './guards/roles.guard.js';
     AuthService,
     PasswordService,
     TokenService,
+    TestLoginsService,
     // Global, deny-by-default auth: JwtAuthGuard runs first (populates
     // req.user), then RolesGuard enforces the permission matrix. Registered
     // here (not AppModule) so their dependencies resolve from this module's

@@ -26,6 +26,11 @@ unprefixed (`/auth/login`, not `/api/auth/login`) and the frontend talks to
      secrets, generate each with
      `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 3. Never commit `infra/docker/.env.prod` (gitignored already).
+4. Leave `TEST_LOGINS=false` unless this is a TEST-mode demo whose login
+   page is itself protected (e.g. Cloudflare Access). When on, the login
+   screen lists ready-made accounts for every role, admin included, with
+   their passwords. It is ignored in Vigil LIVE mode, and start-up disables
+   those accounts whenever it is off.
 
 ## Deploy
 
@@ -60,9 +65,22 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
 ```sh
 curl -s https://$DOMAIN/api/health                 # {"status":"ok"}
-curl -sI https://$DOMAIN/ | grep -i strict-transport
+curl -sI https://$DOMAIN/ | grep -i -E 'strict-transport|content-security-policy|x-frame-options'
+curl -sI https://$DOMAIN/api/health | grep -i cache-control   # no-store
 docker compose -f docker-compose.prod.yml ps        # all healthy
 ```
+
+## Security headers
+
+`infra/docker/Caddyfile` adds them to every response: HSTS, a strict
+Content Security Policy (this site's own scripts, styles, fonts, images and
+API/socket only, no third parties, no framing), X-Frame-Options, nosniff,
+Referrer-Policy, Permissions-Policy, cross-origin isolation of the window and
+resources, `Cache-Control: no-store` on `/api`, `X-Robots-Tag: noindex` on
+everything but the landing page, and no `Server` header. If the web app ever
+loads something from another origin (or Cloudflare features that inject
+scripts, like Web Analytics), add that origin to the CSP and check the
+browser console for CSP violations.
 
 ## Data & backups
 

@@ -90,6 +90,9 @@ services:
       VIGIL_LIVE_TENANT_ID: ${VIGIL_LIVE_TENANT_ID:-}
       VIGIL_LIVE_UNIT_ID: ${VIGIL_LIVE_UNIT_ID:-}
       VIGIL_HL7_CODES: ${VIGIL_HL7_CODES:-}
+      # Test accounts with published passwords on the login screen. Off unless
+      # set; honoured only in Vigil TEST mode (see .env.prod.example).
+      TEST_LOGINS: ${TEST_LOGINS:-false}
     depends_on:
       postgres:
         condition: service_healthy

@@ -31,7 +31,7 @@ async function bootstrap() {
   // reconnaissance gift to an attacker (every route, every DTO shape).
   if (config.get('NODE_ENV', { infer: true }) !== 'production') {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('Infusion Platform API')
+      .setTitle('0dh.in ICU monitoring API')
       .setDescription('Fleet dashboard + master registry API. See docs/sync-contract.md for the machine sync protocol.')
       .setVersion('0.1')
       .addBearerAuth()

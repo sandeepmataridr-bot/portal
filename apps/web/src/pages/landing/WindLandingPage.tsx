@@ -1,27 +1,34 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Leaf as LeafIcon, LogIn } from 'lucide-react';
-import { SCENE_LEAVES, SCENE_SIZE, SCENE_SPAWN } from './sceneData';
+import { CROWN_EDGE, CROWN_FRONT, CROWN_RECT, LEAF_CELL, LEAF_KINDS, LEAF_PAD, SCENE_SIZE, SUN, TREE_LEAF_LEN } from './sceneData';
 import './wind-landing.css';
 
 /**
  * Public landing page at the site root (https://0dh.in/): one calm screen.
- * The scene is the owner's painting of a tree on a sunrise hill. The leaves
- * flying in its sky were cut out of it (sceneData.ts); here they are put back
- * exactly where they were painted, then carried off by a gusty, swirling wind
- * while new ones break off the crown: the painting comes alive. The hospital
- * app itself lives behind /login and /app. Styles are scoped under
- * .wind-landing so nothing leaks into the rest of the app.
+ * The scene is the owner's painting of a tree on a sunrise hill, with the
+ * leaves painted in its sky removed. Real, photographed leaves, sized and
+ * coloured like the painted tree's own, break off the tree: mostly from the
+ * front of the crown, some from behind it through the foliage. Each one
+ * trembles on its twig, lets go in a gust, flutters or tumbles down on the
+ * wind and settles in the grass. The hospital app itself lives behind /login
+ * and /app. Styles are scoped under .wind-landing so nothing leaks into the
+ * rest of the app.
  */
 
 const BG = '/landing/scene-bg.webp';
-const ATLAS = '/landing/scene-leaves.webp';
+const CROWN = '/landing/scene-crown.webp';
+const LEAVES = '/landing/scene-real-leaves.webp';
 const { w: SW, h: SH } = SCENE_SIZE;
-/** Leaves sinking below this line settle into the meadow. */
-const MEADOW_Y = SH * 0.86;
-/** Sprites bigger than this are out-of-focus leaves close to the viewer. */
-const NEAR = 55;
-const MAX_NEAR = 3;
+/** Leaves available to the tree; how many are in the air at once follows the wind. */
+const POOL = 90;
+/** Atlas columns. */
+const SHADE = 0;
+const MID = 1;
+const LIT = 2;
+const BACK = 3;
+/** Where the near meadow meets a leaf's path (painting px): it settles there or a little nearer. */
+const groundAt = (x: number) => 705 + 0.055 * x;
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -58,8 +65,8 @@ function noise3(x: number, y: number, z: number) {
 
 /** Eddy sizes (painting px), how fast they evolve, and their speed (px/s). */
 const EDDIES = [
-  { size: 300, evolve: 0.05, speed: 55, seed: 0 },
-  { size: 120, evolve: 0.11, speed: 22, seed: 17.3 },
+  { size: 300, evolve: 0.05, speed: 45, seed: 0 },
+  { size: 110, evolve: 0.12, speed: 20, seed: 17.3 },
 ];
 
 /**
@@ -80,171 +87,267 @@ function eddies(x: number, y: number, t: number): [number, number] {
   return [vx, vy];
 }
 
+/** A leaf's life: waiting on the tree, trembling before it lets go, falling, lying in the grass. */
+const WAIT = 0;
+const HANG = 1;
+const FALL = 2;
+const REST = 3;
+
+/** How it falls: rocks and swings like a pendulum, rolls over about its midrib, or turns end over end. */
+const FLUTTER = 0;
+const ROLL = 1;
+const TUMBLE = 2;
+
 interface Leaf {
-  sprite: number; // index into SCENE_LEAVES
-  x: number; // centre, painting px
+  state: number;
+  t: number; // seconds in the current state
+  front: boolean; // breaks off the front of the crown (else slips out from behind it)
+  kind: number; // atlas row
+  len: number; // tip-to-stem length, painting px
+  depth: number; // > 1 for leaves falling nearer the viewer: bigger and faster across the view
+  sun: number; // how sunlit its spot on the tree was: 0 deep shade .. 1 full sun
+  x: number;
   y: number;
   vx: number;
   vy: number;
   drag: number; // 1/s: how quickly it follows the moving air
-  sink: number; // terminal fall speed in still air, px/s
-  depth: number; // parallax: leaves nearer the viewer cross the view faster
-  flutter: number; // side-to-side swing, px
-  tilt: number; // swing-induced rotation, rad
-  phase: number;
-  omega: number;
-  rot: number;
+  sink: number; // fall speed in still air, px/s
+  mode: number; // FLUTTER | ROLL | TUMBLE
+  psi: number; // turn in the picture plane
   spin: number;
-  flip: number;
-  flipRate: number; // 0: glides and wobbles; otherwise tumbles end over end
-  age: number;
-  fadeIn: boolean; // breaking off the crown, rather than painted or blown in
-  landed: number; // seconds since it reached the meadow, -1 while airborne
+  rock: number; // rocking about its width, rad
+  lean: number; // lean about its midrib, rad
+  phase: number;
+  rate: number; // rad/s
+  swing: number; // sideways pendulum swing, px
+  hangFor: number;
+  landAt: number; // y where it reaches the grass along its path, past the meadow line
 }
 
-const sizeOf = (i: number) => SCENE_LEAVES[i][6];
-const isCut = (i: number) => SCENE_LEAVES[i][7] === 1;
-const depthOf = (size: number) => clamp(size / 28, 0.7, 2.2);
+/** Somewhere on the crown's front, favouring the sunlit foliage that faces the viewer. */
+function pickFront() {
+  let p: readonly number[];
+  do p = CROWN_FRONT[Math.floor(Math.random() * CROWN_FRONT.length)];
+  while (Math.random() > 0.35 + 0.65 * clamp((p[2] - 60) / 90, 0, 1));
+  return p;
+}
 
-function motion(leaf: Leaf, sprite: number, cut: boolean) {
-  const size = sizeOf(sprite);
-  const near = size > NEAR;
-  leaf.sprite = sprite;
+/** Sets a waiting leaf on the tree, about to let go. */
+function attach(leaf: Leaf) {
+  leaf.front = Math.random() < 0.65;
+  if (leaf.front) {
+    const [x, y, tone] = pickFront();
+    leaf.x = x;
+    leaf.y = y;
+    leaf.sun = clamp((tone - 60) / 90, 0, 1);
+  } else {
+    // from the far side, slipping out past the sunlit downwind edge
+    let e: readonly number[];
+    do e = CROWN_EDGE[Math.floor(Math.random() * CROWN_EDGE.length)];
+    while (Math.random() > (e[0] - 560) / 380);
+    leaf.x = e[0] - rand(10, 30);
+    leaf.y = e[1] + rand(-8, 8);
+    leaf.sun = 0.5;
+  }
+  const near = leaf.front && Math.random() < 0.1;
+  leaf.depth = near ? rand(1.4, 1.8) : rand(0.85, 1.25);
+  leaf.len = TREE_LEAF_LEN * leaf.depth;
+  leaf.landAt = near ? rand(60, 120) : rand(0, 70);
+  leaf.kind = Math.floor(Math.random() * LEAF_KINDS);
   leaf.vx = 0;
   leaf.vy = 0;
-  leaf.drag = rand(0.7, 1.8);
-  leaf.sink = near ? rand(40, 70) : rand(18, 45);
-  leaf.depth = depthOf(size);
-  // The leaf cut by the right edge only slides out of view: turning or
-  // swinging would show its cut side.
-  leaf.flutter = cut ? 0 : rand(0.25, 0.6) * size;
-  leaf.tilt = cut ? 0 : rand(0.25, 0.5);
-  leaf.phase = 0;
-  leaf.omega = rand(2, 3.4);
-  leaf.rot = 0;
-  leaf.spin = cut ? 0 : rand(-0.8, 0.8);
-  leaf.flip = 0;
-  leaf.flipRate = !cut && Math.random() < 0.3 ? rand(2, 4.5) * (Math.random() < 0.5 ? -1 : 1) : 0;
-  leaf.age = 0;
-  leaf.landed = -1;
-}
-
-/** One of the painted leaves, exactly where the painting has it. */
-function painted(i: number): Leaf {
-  const leaf = { x: SCENE_LEAVES[i][4], y: SCENE_LEAVES[i][5], fadeIn: false } as Leaf;
-  motion(leaf, i, isCut(i));
-  return leaf;
-}
-
-/** Reuses a leaf that left the view: a new one breaks off the crown or blows in. */
-function respawn(leaf: Leaf, leaves: Leaf[]) {
-  const nearFlying = leaves.filter((l) => l !== leaf && sizeOf(l.sprite) > NEAR).length;
-  let sprite: number;
-  do sprite = Math.floor(Math.random() * SCENE_LEAVES.length);
-  while (isCut(sprite) || (sizeOf(sprite) > NEAR && (nearFlying >= MAX_NEAR || Math.random() < 0.6)));
-  const size = sizeOf(sprite);
-  if (size <= NEAR && Math.random() < 0.8) {
-    // break off the crown, mostly on its sunlit downwind side
-    let p: readonly number[];
-    do p = SCENE_SPAWN[Math.floor(Math.random() * SCENE_SPAWN.length)];
-    while (Math.random() > (p[0] - 300) / 700);
-    leaf.x = p[0];
-    leaf.y = p[1];
-    leaf.fadeIn = true;
-  } else {
-    leaf.x = -size; // blown in from trees beyond the left edge
-    leaf.y = rand(0.04, 0.6) * SH;
-    leaf.fadeIn = false;
-  }
-  motion(leaf, sprite, false);
+  leaf.drag = rand(1, 2.2);
+  leaf.sink = rand(38, 70);
+  const m = Math.random();
+  leaf.mode = m < 0.6 ? FLUTTER : m < 0.8 ? ROLL : TUMBLE;
+  leaf.psi = rand(-Math.PI, Math.PI);
+  leaf.spin = rand(-0.8, 0.8);
+  leaf.rock = rand(0.5, 1);
+  leaf.lean = rand(-0.6, 0.6);
   leaf.phase = rand(0, Math.PI * 2);
-  leaf.vx = rand(10, 40);
+  leaf.rate = leaf.mode === FLUTTER ? rand(2.2, 3.6) : rand(3, 6) * (Math.random() < 0.5 ? -1 : 1);
+  leaf.swing = (leaf.mode === FLUTTER ? rand(0.6, 1.4) : rand(0.1, 0.3)) * leaf.len;
+  leaf.hangFor = rand(0.5, 1.4);
+  leaf.state = HANG;
+  leaf.t = 0;
 }
 
-function step(leaf: Leaf, leaves: Leaf[], dt: number, t: number) {
-  const ramp = Math.min(1, leaf.age / 1.5); // painted leaves start still and get going
-  leaf.age += dt;
-  if (leaf.landed >= 0) leaf.landed += dt;
+function step(leaf: Leaf, dt: number, t: number) {
+  leaf.t += dt;
+  if (leaf.state === HANG) {
+    if (leaf.t >= leaf.hangFor) {
+      leaf.state = FALL;
+      leaf.t = 0;
+    }
+    return;
+  }
+  if (leaf.state === REST) {
+    if (leaf.t > 2.5) leaf.state = WAIT;
+    return;
+  }
+  if (leaf.state !== FALL) return;
   const g = gustAt(t, leaf.x);
-  const [ex, ey] = eddies(leaf.x - 60 * t, leaf.y, t);
-  const ax = 32 + 78 * g + ex;
-  // The breeze nearly carries the leaves' weight, so they ride across the
-  // sky as in the painting, lifted in gusts and dropped in lulls.
-  let ay = -0.82 * leaf.sink - 34 * (g - 0.45) + ey;
-  if (leaf.fadeIn && leaf.age < 2.5) ay -= 40 * (1 - leaf.age / 2.5) * g; // air deflected up over the crown
+  const [ex, ey] = eddies(leaf.x - 50 * t, leaf.y, t);
+  // Air (painting px/s): the breeze carries leaves off to the right, harder in
+  // gusts, which also lift them a little; in lulls they drop faster.
+  const ax = 18 + 100 * g + 0.8 * ex;
+  const ay = 0.6 * ey - 30 * (g - 0.45);
   const f = 1 - Math.exp(-leaf.drag * dt);
   leaf.vx += (ax * leaf.depth - leaf.vx) * f;
   leaf.vy += ((ay + leaf.sink) * leaf.depth - leaf.vy) * f;
-  if (isCut(leaf.sprite)) leaf.vx = Math.max(leaf.vx, 24);
   leaf.x += leaf.vx * dt;
   leaf.y += leaf.vy * dt;
-  leaf.phase += leaf.omega * dt * (0.8 + 0.5 * g);
-  leaf.rot += leaf.spin * dt * (0.6 + g) * ramp;
-  leaf.flip += leaf.flipRate * dt * (0.7 + 0.6 * g) * ramp;
-  if (leaf.landed < 0 && leaf.y > MEADOW_Y && leaf.age > 1) leaf.landed = 0;
-  const size = sizeOf(leaf.sprite);
-  if (leaf.landed > 1 || leaf.x > SW + size || leaf.x < -2 * size - 60 || leaf.y < -size - 80 || leaf.y > SH + size) {
-    respawn(leaf, leaves);
+  // a leaf only just let go turns slowly at first
+  const ramp = Math.min(1, leaf.t / 1.2);
+  leaf.phase += leaf.rate * dt * (0.75 + 0.5 * g) * (0.35 + 0.65 * ramp);
+  leaf.psi += leaf.spin * dt * (0.5 + g);
+  if (leaf.t > 0.8 && leaf.y >= groundAt(leaf.x) + leaf.landAt) {
+    leaf.state = REST;
+    leaf.t = 0;
+  } else if (leaf.x > SW + 40 || leaf.x < -60 || leaf.y > SH + 40 || leaf.y < -60) {
+    leaf.state = WAIT;
   }
 }
 
-/** Where a painting pixel lands on screen, given the <img>'s object-fit: cover box. */
-function coverTransform(img: HTMLImageElement) {
-  const box = img.getBoundingClientRect();
-  const [px = 0.5, py = 0.5] = getComputedStyle(img)
-    .objectPosition.split(' ')
-    .map((v) => (v.endsWith('%') ? parseFloat(v) / 100 : 0.5));
-  const k = Math.max(box.width / SW, box.height / SH);
-  return { k, ox: box.left + (box.width - SW * k) * px, oy: box.top + (box.height - SH * k) * py };
+/** Advances the whole tree: leaves let go now and then, in bursts when a gust reaches the crown. */
+function advance(leaves: Leaf[], dt: number, t: number) {
+  const g = gustAt(t, 650);
+  const perSecond = 2.4 + 12 * clamp((g - 0.5) / 0.4, 0, 1) ** 2;
+  let n = Math.floor(perSecond * dt + Math.random());
+  for (const leaf of leaves) {
+    if (n <= 0) break;
+    if (leaf.state === WAIT) {
+      attach(leaf);
+      n--;
+    }
+  }
+  for (const leaf of leaves) step(leaf, dt, t);
 }
 
-function SceneLeaves({ sceneRef }: { sceneRef: RefObject<HTMLImageElement | null> }) {
-  const backRef = useRef<HTMLCanvasElement>(null);
-  const frontRef = useRef<HTMLCanvasElement>(null);
+function LivingScene() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const back = backRef.current;
-    const front = frontRef.current;
-    const bctx = back?.getContext('2d');
-    const fctx = front?.getContext('2d');
-    if (!back || !front || !bctx || !fctx) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const crown = new Image();
     const atlas = new Image();
-    let underside: CanvasImageSource = atlas; // the paler back of a tumbling leaf
-    const leaves = SCENE_LEAVES.map((_, i) => painted(i));
+    const leaves: Leaf[] = Array.from({ length: POOL }, () => ({ state: WAIT }) as Leaf);
     let disposed = false;
     let raf = 0;
     let last = 0;
     let clock = 0;
-    let width = 0;
-    let height = 0;
-    let view = { k: 1, ox: 0, oy: 0 };
+    let scale = 1; // backing-store pixels per painting pixel
 
-    const draw = (ctx: CanvasRenderingContext2D, leaf: Leaf) => {
-      const [ax, ay, w, h] = SCENE_LEAVES[leaf.sprite];
-      const ramp = Math.min(1, leaf.age / 1.5);
-      const s = Math.sin(leaf.phase);
-      // Pendulum swing while falling, rising a little at each end of the swing.
-      const x = leaf.x + leaf.flutter * s * ramp;
-      const y = leaf.y - leaf.flutter * 0.3 * s * s * ramp;
-      const turn = leaf.flipRate ? Math.cos(leaf.flip) : 1 - 0.3 * Math.abs(s) * ramp;
-      const alpha = (leaf.fadeIn ? Math.min(1, leaf.age / 0.6) : 1) * (leaf.landed >= 0 ? Math.max(0, 1 - leaf.landed) : 1);
-      if (alpha <= 0) return;
-      const { k, ox, oy } = view;
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(ox + x * k, oy + y * k);
-      ctx.rotate(leaf.rot + leaf.tilt * Math.cos(leaf.phase) * ramp);
-      // Turning edge-on to the viewer: squash one axis; past edge-on, show the underside.
-      ctx.scale(Math.sign(turn || 1) * Math.max(0.08, Math.abs(turn)), 1);
-      ctx.drawImage(turn < 0 ? underside : atlas, ax, ay, w, h, (-w / 2) * k, (-h / 2) * k, w * k, h * k);
-      ctx.restore();
+    // Start mid-scene, as if the page had been open a while: some leaves
+    // trembling on the tree, some falling, some lying in the grass.
+    for (; clock < 30; clock += 1 / 20) advance(leaves, 1 / 20, clock);
+
+    const drawLeaf = (leaf: Leaf) => {
+      let alpha: number; // rocking about its width
+      let beta: number; // roll about its midrib
+      let psi = leaf.psi;
+      let x = leaf.x;
+      let y = leaf.y;
+      let fade = 1;
+      let air = 0; // 0 = lit like its spot on the tree, 1 = lit as a leaf in open air
+      if (leaf.state === HANG) {
+        // trembling on its twig, harder as a gust arrives
+        const tr = Math.sin(clock * 14 + leaf.phase) * (0.12 + 0.3 * gustAt(clock, leaf.x));
+        alpha = 0.2 * tr;
+        beta = 0.5 * leaf.lean + tr;
+        psi += 0.5 * tr;
+        x += 1.5 * tr;
+        fade = Math.min(1, leaf.t / 0.35);
+      } else if (leaf.state === FALL) {
+        const ramp = Math.min(1, leaf.t / 1.2);
+        const s = Math.sin(leaf.phase);
+        air = ramp;
+        if (leaf.mode === FLUTTER) {
+          // pendulum: swings sideways, tilted most and rising at the ends of the swing
+          x += leaf.swing * s * ramp;
+          y -= leaf.swing * 0.3 * s * s * ramp;
+          alpha = leaf.rock * s * ramp;
+          beta = leaf.lean + 0.35 * Math.sin(leaf.phase * 0.6) * ramp;
+          psi += 0.35 * Math.cos(leaf.phase) * ramp;
+        } else if (leaf.mode === ROLL) {
+          x += leaf.swing * s;
+          alpha = 0.3 * Math.sin(leaf.phase * 0.5);
+          beta = leaf.lean + leaf.phase;
+        } else {
+          y += leaf.swing * s;
+          alpha = leaf.lean + leaf.phase;
+          beta = 0.3 * Math.sin(leaf.phase * 0.5);
+        }
+      } else {
+        // lying in the grass, seen at a low angle, slowly lost from view
+        alpha = 1.15;
+        beta = 0.3 * leaf.lean;
+        air = 1;
+        fade = Math.max(0, 1 - leaf.t / 2.5);
+      }
+      const ca = Math.cos(alpha);
+      const sa = Math.sin(alpha);
+      const cb = Math.cos(beta);
+      const sb = Math.sin(beta);
+      const cp = Math.cos(psi);
+      const sp = Math.sin(psi);
+      // Orthographic projection of the turned leaf: where its width (u) and
+      // length (v) axes point on screen, and which way its face points.
+      const ux = cb * cp - sb * sa * sp;
+      const uy = cb * sp + sb * sa * cp;
+      const vx = -ca * sp;
+      const vy = ca * cp;
+      const nx = sb * cp + cb * sa * sp;
+      const ny = sb * sp - cb * sa * cp;
+      const nz = cb * ca;
+      // In open air the low sun behind the leaves shines through those facing
+      // it; one turned to catch the light on its face shines too.
+      let lx = SUN.x - x;
+      let ly = SUN.y - y;
+      let lz = -1400;
+      const ll = Math.hypot(lx, ly, lz);
+      lx /= ll;
+      ly /= ll;
+      lz /= ll;
+      const dot = (nz >= 0 ? 1 : -1) * (nx * lx + ny * ly + nz * lz);
+      const sunlit = leaf.state === REST ? 0.35 : clamp(0.2 + 0.85 * Math.max(-dot, 0.7 * dot), 0, 1);
+      // On the tree it is lit like the foliage around it (shade inside the
+      // crown, sun at its edges), changing to open-air light as it falls clear.
+      const shadeOnTree = leaf.front ? 1 - leaf.sun : 0.7;
+      const lit = lerp(0.9 * leaf.sun, sunlit, air);
+      const shade = shadeOnTree * (1 - air);
+
+      const k = leaf.len / (LEAF_CELL - 2 * LEAF_PAD);
+      const half = LEAF_CELL / 2;
+      const sy = leaf.kind * LEAF_CELL;
+      ctx.setTransform(scale * ux * k, scale * uy * k, scale * vx * k, scale * vy * k, scale * x, scale * y);
+      ctx.globalAlpha = fade;
+      ctx.drawImage(atlas, (nz >= 0 ? MID : BACK) * LEAF_CELL, sy, LEAF_CELL, LEAF_CELL, -half, -half, LEAF_CELL, LEAF_CELL);
+      if (lit > 0.02) {
+        ctx.globalAlpha = fade * lit;
+        ctx.drawImage(atlas, LIT * LEAF_CELL, sy, LEAF_CELL, LEAF_CELL, -half, -half, LEAF_CELL, LEAF_CELL);
+      }
+      if (shade > 0.02) {
+        ctx.globalAlpha = fade * shade;
+        ctx.drawImage(atlas, SHADE * LEAF_CELL, sy, LEAF_CELL, LEAF_CELL, -half, -half, LEAF_CELL, LEAF_CELL);
+      }
     };
 
     const render = () => {
-      bctx.clearRect(0, 0, width, height);
-      fctx.clearRect(0, 0, width, height);
-      for (const leaf of leaves) draw(sizeOf(leaf.sprite) > NEAR ? fctx : bctx, leaf);
+      // The painting itself is the <img> underneath; this layer holds the
+      // leaves and, between the two groups, the crown: leaves leaving from
+      // behind it are covered by its foliage until they come out past it.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const leaf of leaves) if (leaf.state !== WAIT && !leaf.front) drawLeaf(leaf);
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.globalAlpha = 1;
+      const [cx, cy, cw, ch] = CROWN_RECT;
+      ctx.drawImage(crown, cx, cy, cw, ch);
+      for (const leaf of leaves) if (leaf.state !== WAIT && leaf.front) drawLeaf(leaf);
     };
 
     const frame = (time: number) => {
@@ -253,63 +356,93 @@ function SceneLeaves({ sceneRef }: { sceneRef: RefObject<HTMLImageElement | null
       const dt = Math.min((time - (last || time)) / 1000, 0.05);
       last = time;
       clock += dt;
-      for (const leaf of leaves) step(leaf, leaves, dt, clock);
+      advance(leaves, dt, clock);
       render();
       raf = requestAnimationFrame(frame);
     };
 
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      width = window.innerWidth;
-      height = window.innerHeight;
-      for (const [c, ctx] of [
-        [back, bctx],
-        [front, fctx],
-      ] as const) {
-        c.width = Math.round(width * dpr);
-        c.height = Math.round(height * dpr);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.imageSmoothingQuality = 'high';
-      }
-      if (sceneRef.current) view = coverTransform(sceneRef.current);
+      // Draw at the screen's resolution (up to 2x the painting) so the leaves
+      // stay crisp; CSS object-fit frames the canvas exactly like the image.
+      const cover = Math.max(window.innerWidth / SW, window.innerHeight / SH);
+      scale = clamp(cover * (window.devicePixelRatio || 1), 1, 2);
+      canvas.width = Math.round(SW * scale);
+      canvas.height = Math.round(SH * scale);
+      ctx.imageSmoothingQuality = 'high';
       render();
     };
 
-    atlas.onload = () => {
-      if (disposed) return;
-      if ('filter' in CanvasRenderingContext2D.prototype) {
-        const c = document.createElement('canvas');
-        c.width = atlas.naturalWidth;
-        c.height = atlas.naturalHeight;
-        const g = c.getContext('2d');
-        if (g) {
-          g.filter = 'saturate(0.7) brightness(1.15)';
-          g.drawImage(atlas, 0, 0);
-          underside = c;
-        }
-      }
+    let pending = 2;
+    const ready = () => {
+      if (--pending || disposed) return;
       resize();
+      canvas.classList.add('ready');
       if (!still) raf = requestAnimationFrame(frame);
     };
-    atlas.src = ATLAS;
+    for (const [img, src] of [
+      [crown, CROWN],
+      [atlas, LEAVES],
+    ] as const) {
+      img.onload = ready;
+      img.src = src;
+    }
     window.addEventListener('resize', resize);
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
     };
-  }, [sceneRef]);
+  }, []);
 
-  return (
-    <>
-      <canvas className="leaf-canvas back" ref={backRef} aria-hidden="true" />
-      <canvas className="leaf-canvas front" ref={frontRef} aria-hidden="true" />
-    </>
-  );
+  return <canvas className="scene-canvas" ref={canvasRef} aria-hidden="true" />;
+}
+
+/** Developer-tool shortcuts: F12, and Ctrl/Cmd with Shift or Option plus I, J, C, K, E or M. */
+const DEVTOOLS_KEYS = new Set(['KeyI', 'KeyJ', 'KeyC', 'KeyK', 'KeyE', 'KeyM']);
+/** Ctrl/Cmd + U (view source), S (save), P (print), A (select all), C (copy), X (cut). */
+const PAGE_KEYS = new Set(['KeyU', 'KeyS', 'KeyP', 'KeyA', 'KeyC', 'KeyX']);
+/** Gestures and clipboard actions the screen refuses. (gesturestart is iOS Safari's pinch.) */
+const BLOCKED_EVENTS = ['contextmenu', 'selectstart', 'dragstart', 'copy', 'cut', 'gesturestart'];
+
+/**
+ * Locks the screen while the landing page is shown: no right-click menu, no
+ * selecting, copying or dragging anything out, and the save, print,
+ * view-source and developer-tool shortcuts do nothing. Everything is undone
+ * when the page is left, so the staff app behaves normally.
+ *
+ * These deter casual copying only: anything a browser shows can still be
+ * saved by someone determined. The real protections are the security headers
+ * in infra/docker/Caddyfile.
+ */
+function useLockedScreen() {
+  useEffect(() => {
+    const block = (e: Event) => e.preventDefault();
+    const clearSelection = () => {
+      const selection = document.getSelection();
+      if (selection && !selection.isCollapsed) selection.removeAllRanges();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const devtools = e.code === 'F12' || (mod && (e.shiftKey || e.altKey) && DEVTOOLS_KEYS.has(e.code));
+      const pageAction = mod && !e.shiftKey && !e.altKey && PAGE_KEYS.has(e.code);
+      if (devtools || pageAction) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    for (const type of BLOCKED_EVENTS) document.addEventListener(type, block);
+    document.addEventListener('selectionchange', clearSelection);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      for (const type of BLOCKED_EVENTS) document.removeEventListener(type, block);
+      document.removeEventListener('selectionchange', clearSelection);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, []);
 }
 
 export function WindLandingPage() {
-  const sceneRef = useRef<HTMLImageElement>(null);
+  useLockedScreen();
 
   useEffect(() => {
     const previous = document.title;
@@ -320,15 +453,17 @@ export function WindLandingPage() {
   }, []);
 
   return (
+    // The painting and canvas ignore the pointer (wind-landing.css), so they
+    // can't be dragged out as a ghost copy or reached by the image menu.
     <div className="wind-landing">
       <img
-        ref={sceneRef}
         className="scene-bg"
         src={BG}
         alt="A leafy tree on a grassy hill at sunrise, its leaves carried off by the wind"
         fetchPriority="high"
+        draggable={false}
       />
-      <SceneLeaves sceneRef={sceneRef} />
+      <LivingScene />
 
       <header className="top">
         <span className="brand">
@@ -341,7 +476,7 @@ export function WindLandingPage() {
             <b>in</b>
           </span>
         </span>
-        <Link className="signin" to="/login">
+        <Link className="signin" to="/login" draggable={false}>
           <LogIn size={16} /> Staff sign in
         </Link>
       </header>

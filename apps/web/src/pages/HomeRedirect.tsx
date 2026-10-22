@@ -1,14 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-
-const ROLE_HOME: Record<string, string> = {
-  admin: '/admin',
-  doctor: '/doctor',
-  reception: '/reception',
-  pharmacy: '/pharmacy',
-  insurance: '/insurance',
-  superuser: '/super',
-};
+import { ROLE_HOME } from '../auth/roleHome';
 
 /** Mirrors the reference app's `/` dispatch-by-role behavior; served at `/app` since `/` is the public landing page. */
 export function HomeRedirect() {

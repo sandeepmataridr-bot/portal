@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, NotFoundException, Post, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
@@ -8,10 +8,12 @@ import {
   ROLES,
   type LoginInput,
   type ChangePasswordInput,
+  type TestLoginsResponse,
 } from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import type { Env } from '../config/env.validation.js';
 import { AuthService, type LoginResult } from './auth.service.js';
+import { TEST_ACCOUNTS, TestLoginsService } from './test-logins.service.js';
 import { Public } from './decorators/public.decorator.js';
 import { Roles } from './decorators/roles.decorator.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
@@ -23,8 +25,18 @@ const REFRESH_COOKIE_NAME = 'refreshToken';
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly testLogins: TestLoginsService,
     private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /** The test accounts for the login screen; 404 unless TEST_LOGINS is on in Vigil TEST mode. */
+  @Public()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('test-logins')
+  getTestLogins(): TestLoginsResponse {
+    if (!this.testLogins.enabled) throw new NotFoundException();
+    return { accounts: [...TEST_ACCOUNTS] };
+  }
 
   @Public()
   // Tighter than the global default (100/min) — login is the highest-value

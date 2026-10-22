@@ -28,6 +28,14 @@ export const envSchema = z.object({
     .string()
     .min(1, 'CORS_ORIGINS is required (comma-separated allow-list, no wildcards)')
     .transform((value) => value.split(',').map((origin) => origin.trim())),
+
+  // Lists ready-made test accounts (one per role, published passwords) on the
+  // login screen. Honoured only while Vigil runs in TEST mode (simulated
+  // patients); see auth/test-logins.service.ts. Off unless set.
+  TEST_LOGINS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

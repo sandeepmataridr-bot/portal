@@ -117,12 +117,16 @@ export function CentralStationPage() {
   const s = snap.state;
   const ready = s && s.ready ? s : null;
   const notReady = s && !s.ready ? (s as Extract<VigilState, { ready: false }>) : null;
+  // Put the page title back on leaving the station.
+  useEffect(() => {
+    const previous = document.title;
+    return () => {
+      document.title = previous;
+    };
+  }, []);
   useEffect(() => {
     const n = ready ? ready.alerts.length : 0;
     document.title = `${n ? `(${n}) ` : ''}${s?.mode === 'test' ? '[TEST] ' : ''}Vigil Central Station`;
-    return () => {
-      document.title = 'Infusion Platform';
-    };
   }, [ready, s?.mode]);
 
   const level = effectiveLevel(snap);

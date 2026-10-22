@@ -23,7 +23,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       </header>
       <main className="app-shell__content">{children}</main>
       <footer className="app-shell__footer">
-        <p>Infusion Platform — Fleet Dashboard</p>
+        <p>0dh.in — ICU patient monitoring</p>
       </footer>
     </div>
   );

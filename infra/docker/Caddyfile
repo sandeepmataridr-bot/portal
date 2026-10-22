@@ -1,11 +1,48 @@
+# Security headers on every response: the landing page, the SPA and /api.
+#
+# The Content Security Policy only lets pages load this site's own scripts,
+# styles, fonts and images, and talk only to this site's API and socket — so
+# injected markup can't pull in or run anything from elsewhere. The web app
+# loads nothing third-party (its fonts are self-hosted); if that ever changes,
+# add the origin here and check the browser console for CSP violations.
+# Header deletions (-Server) make Caddy apply this block as the response is
+# written, so these values also replace any the api sets itself.
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' wss://{$DOMAIN}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'none'; manifest-src 'self'; upgrade-insecure-requests"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), usb=(), xr-spatial-tracking=(), browsing-topics=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		X-Permitted-Cross-Domain-Policies "none"
+		Origin-Agent-Cluster "?1"
+		-Server
+		-X-Powered-By
+	}
+}
+
 {$DOMAIN} {
 	encode gzip zstd
+	import security_headers
+
+	# Only the landing page (/) belongs in search engines; keep the staff
+	# app's pages and files out of them.
+	@notLanding not path /
+	header @notLanding X-Robots-Tag "noindex, nofollow"
 
 	# Strip /api before forwarding — the NestJS app has no global prefix,
 	# so `/api/auth/login` on the wire becomes `/auth/login` to the api
 	# container. Keeps the browser talking to one origin (no CORS, no
 	# separate subdomain/cert to manage).
 	handle_path /api/* {
+		# Patient data must never be kept by the browser's or any proxy's cache.
+		header {
+			Cache-Control "no-store"
+			defer
+		}
 		reverse_proxy api:3000
 	}
 
@@ -13,12 +50,5 @@
 		root * /srv/web
 		try_files {path} /index.html
 		file_server
-	}
-
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
 	}
 }
