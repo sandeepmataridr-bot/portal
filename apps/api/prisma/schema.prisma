@@ -195,6 +195,15 @@ model Patient {
   // (insurance, full contact details, etc.) — a worklist flag, not a block.
   needsReceptionCompletion Boolean @default(false)
 
+  // Duplicate records of the same person (registered twice, or once at the
+  // bedside): admin links each duplicate to one main record. Linked
+  // duplicates are kept as they are, hidden from active lists, and their
+  // history shows in the main record's timeline; delinking clears this.
+  // One level deep: a main record is never itself linked.
+  linkedToPatientId String?
+  linkedTo          Patient?  @relation("PatientLink", fields: [linkedToPatientId], references: [id])
+  linkedPatients    Patient[] @relation("PatientLink")
+
   version   Int       @default(1)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -207,6 +216,7 @@ model Patient {
   medicineRequests  MedicineRequest[]
   liveStatuses      InfusionLiveStatus[]
 
+  @@index([linkedToPatientId])
   @@map("patients")
 }
 

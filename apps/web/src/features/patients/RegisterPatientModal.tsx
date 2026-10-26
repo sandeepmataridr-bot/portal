@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { registerPatientSchema, type RegisterPatientInput } from '@infusion/shared-types';
@@ -37,10 +38,27 @@ export function RegisterPatientModal({ onClose }: { onClose: () => void }) {
   const diabetic = watch('conditions.diabetic');
   const hypertensive = watch('conditions.hypertensive');
 
+  // The server assigns the IP number; show it before closing.
+  const [created, setCreated] = useState<{ ipNumber: string; fullName: string } | null>(null);
   const onSubmit = async (data: RegisterPatientInput) => {
-    await registerPatient.mutateAsync(data);
-    onClose();
+    const patient = await registerPatient.mutateAsync(data);
+    setCreated({ ipNumber: patient.ipNumber, fullName: patient.fullName });
   };
+
+  if (created) {
+    return (
+      <Modal title="Patient registered" onClose={onClose}>
+        <p className="registered-ip">
+          ✅ <b>{created.fullName}</b> is registered with IP number <b>{created.ipNumber}</b>.
+        </p>
+        <div className="modal-footer">
+          <button type="button" className="btn-primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal title="Register New Patient" onClose={onClose} wide>
@@ -48,9 +66,8 @@ export function RegisterPatientModal({ onClose }: { onClose: () => void }) {
         <h4 className="form-section-title">👤 Patient Identity</h4>
         <div className="form-row form-row--4">
           <label>
-            IP Number *
-            <input type="text" placeholder="e.g. 123456" maxLength={6} {...register('ipNumber')} />
-            {errors.ipNumber && <span className="field-error">{errors.ipNumber.message}</span>}
+            IP Number
+            <input type="text" value="Assigned automatically" disabled readOnly />
           </label>
           <label>
             Full Name *

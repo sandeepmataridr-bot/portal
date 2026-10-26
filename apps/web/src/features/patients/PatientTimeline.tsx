@@ -9,6 +9,9 @@ const BADGE_CLASS: Record<string, string> = {
   DOCTOR_UPDATE: 'badge-doctor-update',
   DOCTOR_REASSIGNED: 'badge-doctor-reassigned',
   IDENTITY_UPDATE: 'badge-identity-update',
+  IP_LINKED: 'badge-ip-link',
+  IP_LINKED_TO: 'badge-ip-link',
+  IP_UNLINKED: 'badge-ip-link',
   DOCTOR_SUGGESTION: 'badge-doctor-update',
   DOCTOR_SUGGESTION_DELETED: 'badge-doctor-update',
   INSURANCE_APPROVED: 'badge-insurance-approved',
@@ -41,6 +44,20 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
         {s.diagnosis ? <p>Diagnosis: {String(s.diagnosis)}</p> : null}
         {s.doctorNotes ? <p>Notes: {String(s.doctorNotes)}</p> : null}
         {!s.diagnosis && !s.doctorNotes ? <p className="timeline-entry__nodata">(No summary details)</p> : null}
+      </div>
+    );
+  }
+
+  if (entry.action === 'IP_LINKED' || entry.action === 'IP_LINKED_TO' || entry.action === 'IP_UNLINKED') {
+    const linked = Array.isArray(s.linked) ? (s.linked as { ipNumber: string | null; fullName: string }[]) : [];
+    const ip = (n: unknown, name: unknown) => `IP ${String(n ?? '—')} (${String(name ?? '')})`;
+    return (
+      <div className="timeline-entry__body">
+        {entry.action === 'IP_LINKED' && <p>Linked as duplicates of this IP: {linked.map((l) => ip(l.ipNumber, l.fullName)).join(', ')}</p>}
+        {entry.action === 'IP_LINKED_TO' && <p>Linked to main {ip(s.mainIpNumber, s.mainFullName)}</p>}
+        {entry.action === 'IP_UNLINKED' && <p>Delinked from {ip(s.otherIpNumber, s.otherFullName)}</p>}
+        {s.reason ? <p>Reason: {String(s.reason)}</p> : null}
+        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
       </div>
     );
   }
@@ -107,7 +124,16 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
  * role-specific view narrow to its own action types (e.g. insurance shows
  * only INSURANCE_*) without duplicating the rendering logic.
  */
-export function PatientTimeline({ entries, filterPrefix }: { entries: PatientHistoryEntry[]; filterPrefix?: string }) {
+/** ownIpNumber: entries written under another (linked) IP get a tag with that IP. */
+export function PatientTimeline({
+  entries,
+  filterPrefix,
+  ownIpNumber,
+}: {
+  entries: PatientHistoryEntry[];
+  filterPrefix?: string;
+  ownIpNumber?: string | null;
+}) {
   const filtered = filterPrefix ? entries.filter((e) => e.action.startsWith(filterPrefix)) : entries;
 
   if (filtered.length === 0) {
@@ -121,6 +147,7 @@ export function PatientTimeline({ entries, filterPrefix }: { entries: PatientHis
           <div className="timeline-entry__header">
             <span className="timeline-entry__version">v{entry.version}</span>
             <span className={`timeline-badge ${BADGE_CLASS[entry.action] ?? 'badge-default'}`}>{entry.action}</span>
+            {entry.ipNumber && ownIpNumber && entry.ipNumber !== ownIpNumber && <span className="timeline-entry__ip">IP {entry.ipNumber}</span>}
             <span className="timeline-entry__date">{formatTimestamp(entry.createdAt)}</span>
           </div>
           <EntryBody entry={entry} />

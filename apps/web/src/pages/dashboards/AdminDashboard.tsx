@@ -7,6 +7,7 @@ import { StatTile } from '../../components/StatTile';
 import { useFleetStatus, useCreateMachine, useIssueMachineCredential } from '../../features/machines/api';
 import { AssignPatientModal } from '../../features/machines/AssignPatientModal';
 import { MachineMirrorView } from '../../features/machines/MachineMirrorView';
+import { PatientLinksCard } from '../../features/patients/PatientLinksCard';
 import {
   useAllDoctors,
   useCreateDoctor,
@@ -300,6 +301,7 @@ export function AdminDashboard() {
   return (
     <AppShell title="🏥 Admin — Fleet Dashboard">
       <FleetPanel />
+      <PatientLinksCard />
       <ManageDoctorsPanel />
     </AppShell>
   );

@@ -6,6 +6,8 @@ import type {
   PatientClinicalUpdateInput,
   ChangePatientDoctorInput,
   UpdatePatientIdentityInput,
+  LinkPatientsInput,
+  UnlinkPatientInput,
 } from '@infusion/shared-types';
 import { apiFetch } from '../../lib/api';
 
@@ -16,6 +18,8 @@ export interface PatientSummary {
   doctorName: string | null;
   discharged: boolean;
   claimStatus: string | null;
+  /** IP numbers of duplicate records linked to this one (searching them finds this patient). */
+  linkedIpNumbers?: string[];
 }
 
 export interface PatientHistoryEntry {
@@ -26,6 +30,8 @@ export interface PatientHistoryEntry {
   snapshot: Record<string, unknown>;
   actedBy: string | null;
   createdAt: string;
+  /** The IP number this entry was written under (a linked duplicate's, in a combined timeline). */
+  ipNumber?: string | null;
 }
 
 export interface PatientDetail {
@@ -62,6 +68,20 @@ export interface PatientDetail {
   history: PatientHistoryEntry[];
   insuranceClaims: Array<{ id: string; status: string; remarks: string | null }>;
   machineAssignments: Array<{ id: string; machineId: string; machine: { machineCode: string; machineType: string } }>;
+  /** Set on a duplicate: the main record it is linked to. */
+  linkedTo: LinkedPatientRef | null;
+  /** On a main record: its linked duplicates. */
+  linkedPatients: LinkedPatientRef[];
+}
+
+export interface LinkedPatientRef {
+  id: string;
+  ipNumber: string | null;
+  fullName: string;
+}
+
+export interface PatientLinkGroup extends LinkedPatientRef {
+  linkedPatients: Array<LinkedPatientRef & { updatedAt: string }>;
 }
 
 export interface ReceptionDashboardStats {
@@ -188,6 +208,34 @@ export function useUntagPatientMachine() {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
       queryClient.invalidateQueries({ queryKey: ['patients', variables.id] });
       queryClient.invalidateQueries({ queryKey: ['machines'] });
+    },
+  });
+}
+
+/** Admin: main records with their linked duplicate IPs. */
+export function usePatientLinks() {
+  return useQuery({ queryKey: ['patients', 'links'], queryFn: () => apiFetch<PatientLinkGroup[]>('/patients/links') });
+}
+
+/** Admin: link duplicate IPs to a main IP (recorded in every timeline involved). */
+export function useLinkPatients() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: LinkPatientsInput) => apiFetch<PatientDetail>('/patients/links', { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+/** Admin: delink one duplicate IP from its main IP. */
+export function useUnlinkPatient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UnlinkPatientInput }) =>
+      apiFetch<PatientDetail>(`/patients/${id}/unlink`, { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });
 }

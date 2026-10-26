@@ -24,6 +24,18 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
         <p>Loading…</p>
       ) : (
         <div className="patient-details">
+          {patient.linkedTo && (
+            <p className="linked-banner">
+              🔗 This record is a duplicate linked to main <b>IP {patient.linkedTo.ipNumber}</b> ({patient.linkedTo.fullName}). It is
+              hidden from patient lists; its history shows on the main IP.
+            </p>
+          )}
+          {patient.linkedPatients.length > 0 && (
+            <p className="linked-banner">
+              🔗 Linked IPs (same patient): {patient.linkedPatients.map((l) => `${l.ipNumber} (${l.fullName})`).join(', ')}. Their history is
+              included below.
+            </p>
+          )}
           <h4 className="form-section-title section-with-action">
             👤 Patient Identity
             {isFrontDesk && !editingIdentity && (
@@ -186,7 +198,7 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
           ) : null}
 
           <h4 className="form-section-title">📜 History Timeline</h4>
-          <PatientTimeline entries={patient.history} />
+          <PatientTimeline entries={patient.history} ownIpNumber={patient.ipNumber} />
         </div>
       )}
     </Modal>

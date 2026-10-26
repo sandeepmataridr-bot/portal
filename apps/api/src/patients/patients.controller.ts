@@ -7,6 +7,8 @@ import {
   tagPatientMachineSchema,
   changePatientDoctorSchema,
   updatePatientIdentitySchema,
+  linkPatientsSchema,
+  unlinkPatientSchema,
   ROLES,
   type RegisterPatientInput,
   type ReadmitPatientInput,
@@ -15,6 +17,8 @@ import {
   type TagPatientMachineInput,
   type ChangePatientDoctorInput,
   type UpdatePatientIdentityInput,
+  type LinkPatientsInput,
+  type UnlinkPatientInput,
 } from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -40,6 +44,30 @@ export class PatientsController {
   @Get('dashboard')
   dashboard() {
     return this.patients.dashboard();
+  }
+
+  // Duplicate IPs of one person: admin links them to a main IP and delinks
+  // them; every link and delink is recorded in each patient's history.
+  @Roles('admin')
+  @Get('links')
+  listLinks() {
+    return this.patients.listLinks();
+  }
+
+  @Roles('admin')
+  @Post('links')
+  link(@Body(new ZodValidationPipe(linkPatientsSchema)) body: LinkPatientsInput, @CurrentUser() user: AuthenticatedUser) {
+    return this.patients.linkPatients(body, user);
+  }
+
+  @Roles('admin')
+  @Post(':id/unlink')
+  unlink(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(unlinkPatientSchema)) body: UnlinkPatientInput,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patients.unlinkPatient(id, body, user);
   }
 
   @Roles(...ROLES)

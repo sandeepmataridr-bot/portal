@@ -500,6 +500,24 @@ button {
 .badge-doctor-update { background: #bbdefb; color: #1565c0; }
 .badge-doctor-reassigned { background: #d1c4e9; color: #4527a0; }
 .badge-identity-update { background: #b2ebf2; color: #006064; }
+.badge-ip-link { background: #ffe0b2; color: #bf360c; }
+.timeline-entry__ip { font-size: 0.75rem; font-weight: 600; color: var(--color-muted); background: #eceff1; border-radius: 8px; padding: 2px 8px; }
+.linked-banner { background: #fff3e0; border: 1px solid #ffcc80; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 0.9rem; }
+.registered-ip { font-size: 1.05rem; }
+
+/* ---------- Linked IPs (admin) ---------- */
+.links-pick { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; margin-bottom: 12px; }
+.links-pick__row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px; cursor: pointer; }
+.links-pick__row.is-picked { background: #e8f5e9; border-color: var(--color-primary); }
+.links-pick__row .muted { color: var(--color-muted); font-size: 0.8rem; margin-left: auto; }
+.links-chosen { display: grid; gap: 8px; padding: 12px; background: var(--color-bg); border-radius: 8px; margin-bottom: 12px; }
+.links-main { display: flex; align-items: center; gap: 8px; }
+.links-reason { display: grid; gap: 4px; font-size: 0.85rem; font-weight: 600; color: var(--color-muted); }
+.links-reason input { width: 100%; }
+.links-confirm { margin: 0; padding: 8px 10px; background: #fff3e0; border-radius: 6px; font-size: 0.9rem; }
+.links-reviews { display: grid; gap: 6px; margin-bottom: 12px; padding: 10px 12px; background: #fff8e1; border-radius: 8px; font-size: 0.9rem; }
+.links-review { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.links-subtitle { margin: 16px 0 8px; font-size: 0.95rem; }
 .section-with-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-with-action .link-button { font-size: 0.9rem; }
 .edit-identity input:disabled { background: #eceff1; color: var(--color-muted); }

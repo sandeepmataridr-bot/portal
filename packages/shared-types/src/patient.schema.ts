@@ -62,7 +62,10 @@ export const patientInsuranceDetailsSchema = z.object({
   tpaName: z.string().max(100).optional(),
 });
 
+// The server assigns the IP number (6 digits, next in sequence), so it is
+// not part of the registration payload.
 export const registerPatientSchema = patientIdentitySchema
+  .omit({ ipNumber: true })
   .merge(patientVitalsSchema)
   .extend({
     conditions: patientConditionsSchema,
@@ -110,6 +113,28 @@ export const PATIENT_FIXED_FIELDS = ['ipNumber', 'fullName'] as const;
 // Any subset of the editable fields; .strict() refuses ipNumber/fullName outright.
 export const updatePatientIdentitySchema = patientIdentitySchema.omit({ ipNumber: true, fullName: true }).partial().strict();
 export type UpdatePatientIdentityInput = z.infer<typeof updatePatientIdentitySchema>;
+
+/**
+ * Admin links duplicate records of one person to a main record (registered
+ * twice, or once at the bedside). Duplicates are kept, hidden from active
+ * lists, and their history shows in the main record's timeline.
+ */
+export const linkPatientsSchema = z
+  .object({
+    mainPatientId: z.string().uuid(),
+    duplicatePatientIds: z.array(z.string().uuid()).min(1, 'Choose at least one duplicate IP').max(20),
+    reason: z.string().trim().min(3, 'Say why these IPs are the same patient').max(500),
+  })
+  .refine((v) => !v.duplicatePatientIds.includes(v.mainPatientId), {
+    message: 'The main IP cannot also be a duplicate',
+    path: ['duplicatePatientIds'],
+  });
+export type LinkPatientsInput = z.infer<typeof linkPatientsSchema>;
+
+export const unlinkPatientSchema = z.object({
+  reason: z.string().trim().min(3, 'Say why this IP is being delinked').max(500),
+});
+export type UnlinkPatientInput = z.infer<typeof unlinkPatientSchema>;
 
 /**
  * Reception (or admin) moves a patient to another attending doctor. The

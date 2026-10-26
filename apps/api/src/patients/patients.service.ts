@@ -7,6 +7,8 @@ import type {
   PatientClinicalUpdateInput,
   ChangePatientDoctorInput,
   UpdatePatientIdentityInput,
+  LinkPatientsInput,
+  UnlinkPatientInput,
 } from '@infusion/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -23,7 +25,22 @@ const patientInclude = {
   history: { orderBy: { version: 'desc' as const } },
   insuranceClaims: { orderBy: { createdAt: 'desc' as const }, take: 1 },
   machineAssignments: { where: { unassignedAt: null }, include: { machine: true } },
+  linkedTo: { select: { id: true, ipNumber: true, fullName: true } },
+  linkedPatients: {
+    select: { id: true, ipNumber: true, fullName: true, history: { orderBy: { version: 'desc' as const } } },
+    orderBy: { createdAt: 'asc' as const },
+  },
 } satisfies Prisma.PatientInclude;
+
+/**
+ * The next IP number: 6 digits, in sequence, from the patient_ip_seq database
+ * sequence (migration 20261026172909), so concurrent registrations never
+ * collide. Used for reception and bedside-created patients alike.
+ */
+async function nextIpNumber(tx: Prisma.TransactionClient): Promise<string> {
+  const [row] = await tx.$queryRaw<{ ip: string }[]>`SELECT lpad(nextval('patient_ip_seq')::text, 6, '0') AS ip`;
+  return row.ip;
+}
 
 function toSnapshot(record: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(record));
@@ -38,13 +55,10 @@ export class PatientsService {
   ) {}
 
   async register(input: RegisterPatientInput, actor: AuthenticatedUser) {
-    const existing = await this.prisma.patient.findUnique({ where: { ipNumber: input.ipNumber } });
-    if (existing) throw new ConflictException(`IP Number ${input.ipNumber} is already registered`);
-
     const patientId = await this.prisma.$transaction(async (tx) => {
       const created = await tx.patient.create({
         data: {
-          ipNumber: input.ipNumber,
+          ipNumber: await nextIpNumber(tx),
           fullName: input.fullName,
           age: input.age,
           gender: input.gender,
@@ -140,6 +154,7 @@ export class PatientsService {
     const created = await tx.patient.create({
       data: {
         id: entityId,
+        ipNumber: await nextIpNumber(tx),
         fullName,
         age: Math.trunc(age),
         gender,
@@ -189,12 +204,19 @@ export class PatientsService {
               OR: [
                 { fullName: { contains: search, mode: 'insensitive' as const } },
                 { ipNumber: { contains: search, mode: 'insensitive' as const } },
+                { linkedPatients: { some: { ipNumber: { contains: search, mode: 'insensitive' as const } } } },
               ],
             }
           : {}),
         ...(doctorId ? { doctorProfileId: doctorId } : {}),
+        // Linked duplicates are reached through their main record.
+        linkedToPatientId: null,
       },
-      include: { doctor: true, insuranceClaims: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      include: {
+        doctor: true,
+        insuranceClaims: { orderBy: { createdAt: 'desc' }, take: 1 },
+        linkedPatients: { select: { ipNumber: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -205,13 +227,156 @@ export class PatientsService {
       doctorName: p.doctor?.name ?? null,
       discharged: p.discharged,
       claimStatus: p.insuranceClaims[0]?.status ?? null,
+      linkedIpNumbers: p.linkedPatients.map((l) => l.ipNumber).filter((ip): ip is string => !!ip),
     }));
   }
 
   async getById(id: string) {
     const patient = await this.prisma.patient.findUnique({ where: { id }, include: patientInclude });
     if (!patient) throw new NotFoundException('Patient not found');
-    return patient;
+    // One timeline for the person: this record's history plus every linked
+    // duplicate's, each entry tagged with the IP number it was written under.
+    const history = [
+      ...patient.history.map((h) => ({ ...h, ipNumber: patient.ipNumber })),
+      ...patient.linkedPatients.flatMap((l) => l.history.map((h) => ({ ...h, ipNumber: l.ipNumber }))),
+    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return {
+      ...patient,
+      history,
+      linkedPatients: patient.linkedPatients.map((l) => ({ id: l.id, ipNumber: l.ipNumber, fullName: l.fullName })),
+    };
+  }
+
+  /**
+   * Links duplicate records to one main record (admin). Each duplicate keeps
+   * its own data and IP number; it is hidden from active lists and its
+   * history appears in the main record's timeline. Links are one level deep.
+   */
+  async linkPatients(input: LinkPatientsInput, actor: AuthenticatedUser) {
+    await this.prisma.$transaction(async (tx) => {
+      const found = await tx.patient.findMany({
+        where: { id: { in: [input.mainPatientId, ...input.duplicatePatientIds] } },
+        include: {
+          linkedPatients: { select: { id: true } },
+          machineAssignments: { where: { unassignedAt: null }, include: { machine: { select: { machineCode: true } } } },
+        },
+      });
+      const byId = new Map(found.map((p) => [p.id, p]));
+      const main = byId.get(input.mainPatientId);
+      if (!main) throw new NotFoundException('Main patient not found');
+      if (main.linkedToPatientId) {
+        throw new ConflictException(`IP ${main.ipNumber} is itself linked to another IP; choose that one as the main IP`);
+      }
+      const dups = input.duplicatePatientIds.map((d) => {
+        const p = byId.get(d);
+        if (!p) throw new NotFoundException('Duplicate patient not found');
+        if (p.linkedToPatientId) throw new ConflictException(`IP ${p.ipNumber} is already linked; delink it first`);
+        if (p.linkedPatients.length) throw new ConflictException(`IP ${p.ipNumber} has its own linked IPs; delink those first`);
+        if (p.machineAssignments.length) {
+          const codes = p.machineAssignments.map((a) => a.machine.machineCode).join(', ');
+          throw new ConflictException(`IP ${p.ipNumber} is still on ${codes}; move those machines to IP ${main.ipNumber} first`);
+        }
+        return p;
+      });
+
+      for (const d of dups) {
+        const v = d.version + 1;
+        const updated = await tx.patient.update({ where: { id: d.id }, data: { linkedToPatientId: main.id, version: v } });
+        await tx.patientHistory.create({
+          data: {
+            patientId: d.id,
+            version: v,
+            action: 'IP_LINKED_TO',
+            snapshot: toSnapshot({ ...updated, mainIpNumber: main.ipNumber, mainFullName: main.fullName, reason: input.reason }),
+            actedBy: actor.loginId,
+          },
+        });
+      }
+      const mv = main.version + 1;
+      const mainUpdated = await tx.patient.update({ where: { id: main.id }, data: { version: mv } });
+      await tx.patientHistory.create({
+        data: {
+          patientId: main.id,
+          version: mv,
+          action: 'IP_LINKED',
+          snapshot: toSnapshot({
+            ...mainUpdated,
+            linked: dups.map((d) => ({ id: d.id, ipNumber: d.ipNumber, fullName: d.fullName })),
+            reason: input.reason,
+          }),
+          actedBy: actor.loginId,
+        },
+      });
+    });
+
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'PATIENT_IPS_LINKED',
+      entityTable: 'patients',
+      entityId: input.mainPatientId,
+      after: { duplicates: input.duplicatePatientIds, reason: input.reason },
+    });
+    return this.getById(input.mainPatientId);
+  }
+
+  /** Delinks one duplicate from its main record (admin); both timelines record it. */
+  async unlinkPatient(id: string, input: UnlinkPatientInput, actor: AuthenticatedUser) {
+    let mainId = '';
+    await this.prisma.$transaction(async (tx) => {
+      const dup = await tx.patient.findUnique({ where: { id }, include: { linkedTo: true } });
+      if (!dup) throw new NotFoundException('Patient not found');
+      if (!dup.linkedTo) throw new ConflictException(`IP ${dup.ipNumber} is not linked`);
+      const main = dup.linkedTo;
+      mainId = main.id;
+
+      const v = dup.version + 1;
+      const updated = await tx.patient.update({ where: { id }, data: { linkedToPatientId: null, version: v } });
+      await tx.patientHistory.create({
+        data: {
+          patientId: id,
+          version: v,
+          action: 'IP_UNLINKED',
+          snapshot: toSnapshot({ ...updated, otherIpNumber: main.ipNumber, otherFullName: main.fullName, reason: input.reason }),
+          actedBy: actor.loginId,
+        },
+      });
+      const mv = main.version + 1;
+      const mainUpdated = await tx.patient.update({ where: { id: main.id }, data: { version: mv } });
+      await tx.patientHistory.create({
+        data: {
+          patientId: main.id,
+          version: mv,
+          action: 'IP_UNLINKED',
+          snapshot: toSnapshot({ ...mainUpdated, otherIpNumber: dup.ipNumber, otherFullName: dup.fullName, reason: input.reason }),
+          actedBy: actor.loginId,
+        },
+      });
+    });
+
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'PATIENT_IPS_UNLINKED',
+      entityTable: 'patients',
+      entityId: id,
+      after: { mainPatientId: mainId, reason: input.reason },
+    });
+    return this.getById(id);
+  }
+
+  /** Every main record with its linked duplicates, for the admin page. */
+  listLinks() {
+    return this.prisma.patient.findMany({
+      where: { linkedPatients: { some: {} } },
+      select: {
+        id: true,
+        ipNumber: true,
+        fullName: true,
+        linkedPatients: { select: { id: true, ipNumber: true, fullName: true, updatedAt: true }, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { ipNumber: 'asc' },
+    });
   }
 
   async readmit(id: string, input: ReadmitPatientInput, actor: AuthenticatedUser) {
@@ -487,8 +652,8 @@ export class PatientsService {
     startOfToday.setHours(0, 0, 0, 0);
 
     const [todayPatients, discharged, claims] = await Promise.all([
-      this.prisma.patient.count({ where: { createdAt: { gte: startOfToday } } }),
-      this.prisma.patient.count({ where: { discharged: true } }),
+      this.prisma.patient.count({ where: { createdAt: { gte: startOfToday }, linkedToPatientId: null } }),
+      this.prisma.patient.count({ where: { discharged: true, linkedToPatientId: null } }),
       this.prisma.insuranceClaim.groupBy({ by: ['status'], _count: true }),
     ]);
 
