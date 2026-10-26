@@ -12,7 +12,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         <div className="app-shell__nav">
           {user && ['doctor', 'admin', 'superuser'].includes(user.role) && (
             <Link className="app-shell__link" to="/central-station">
-              ECMO central station
+              Central station
             </Link>
           )}
           {user && <span className="app-shell__user">{user.loginId} · {user.role}</span>}

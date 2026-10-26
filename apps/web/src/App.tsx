@@ -11,6 +11,7 @@ import { PharmacyDashboard } from './pages/dashboards/PharmacyDashboard';
 import { InsuranceDashboard } from './pages/dashboards/InsuranceDashboard';
 import { SuperUserDashboard } from './pages/dashboards/SuperUserDashboard';
 import { CentralStationPage } from './features/vigil/CentralStationPage';
+import { PatientMonitorPage } from './features/patient-monitor/PatientMonitorPage';
 
 // The public landing page at the site root. Lazy so its canvas/icon code
 // never weighs on the staff app, and vice versa.
@@ -76,6 +77,14 @@ function App() {
         element={
           <RequireRole allow={['insurance']}>
             <InsuranceDashboard />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/patients/:patientId/monitor"
+        element={
+          <RequireRole allow={['doctor', 'admin', 'superuser']}>
+            <PatientMonitorPage />
           </RequireRole>
         }
       />

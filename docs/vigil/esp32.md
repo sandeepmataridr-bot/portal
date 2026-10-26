@@ -42,7 +42,16 @@ Heater controller -serial-/
 
    With `DEMO_SOURCES 1` (the default), the gateway simulates both controllers itself, so steps 1–5 can be checked before any wiring.
 7. **Portal:** register the patient as usual (reception). Then, in **Admin dashboard → Fleet**, assign `ECMO-001` to that patient.
-8. **Doctor → ECMO central station:** the machine first appears as *unassociated* with live readings. After the patient is assigned, press **Confirm association** once the console is checked at the bedside. The rules start running.
+8. **Doctor → Central station:** the machine first appears as *unassociated* with live readings. After the patient is assigned, press **Confirm association** once the console is checked at the bedside. The rules start running.
+9. **Patient monitor page:** click the patient's name on the card to see every machine on that patient together.
+
+### A patient monitor (SpO₂, temperature, multi-parameter)
+
+The same steps with these differences:
+- **Register** the machine as type **SpO₂ monitor**, **Temperature monitor** or **Multi-parameter monitor** (e.g. `SPO2-01`), and issue its own credential.
+- **Firmware:** in the gateway sketch set `#define PROFILE PROFILE_VITALS` (instead of `PROFILE_ECMO`), with that monitor's `MACHINE_CODE`, `MACHINE_ID` and `MACHINE_TOKEN` in `secrets.h`.
+- **Wiring:** the monitor's serial output to GPIO 25 (18 on ESP32-S3), sending `$VS` lines ([PROTOCOL.md](../../firmware/PROTOCOL.md)). With `DEMO_SOURCES 1` the gateway simulates the monitor.
+- **Assign** it to the patient in the fleet, like the ECMO console. One patient can have several machines at once.
 
 ## `SERVER_URL`
 

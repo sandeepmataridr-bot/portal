@@ -1,22 +1,13 @@
 import { Component, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  VIGIL_GOOD_SQI,
-  type VigilAlertView,
-  type VigilLogEntry,
-  type VigilMachineState,
-  type VigilSignalState,
-  type VigilState,
-} from '@infusion/shared-types';
+import type { VigilAlertView, VigilLogEntry, VigilState } from '@infusion/shared-types';
 import { useAuth } from '../../auth/AuthContext';
-import { apiFetch } from '../../lib/api';
 import { hideFallback, showFallback } from './fallback';
-import { MARK, PATIENT, fmtAgo, fmtDur, fmtFlag, fmtTime, fmtUnit, fmtVal, fmtWindow } from './format';
-import { LineChart, type AlertBand } from './LineChart';
-import { effectiveLevel, getSnapshot, poll, setWindow, start, subscribe, type Connection } from './store';
+import { MARK, PATIENT, fmtAgo, fmtDur, fmtTime, fmtWindow } from './format';
+import { errorText, post, type Ready } from './actions';
+import { MachineCard } from './MachineCard';
+import { effectiveLevel, getSnapshot, setWindow, start, subscribe, type Connection } from './store';
 import './central-station.css';
-
-type Ready = Extract<VigilState, { ready: true }>;
 
 const LEVELS: Record<number, [string, string]> = {
   0: ['Level 0 · Full operation', 'All machines reporting; safety floor and core rules running.'],
@@ -25,13 +16,6 @@ const LEVELS: Record<number, [string, string]> = {
   3: ['Level 3 · Central station offline', 'This screen has lost the server. Use the bedside devices and their alarms.'],
 };
 const KIND_MARK: Record<VigilLogEntry['kind'], string> = { raised: '▲', resolved: '✓', acknowledged: '◉' };
-const STATUS_TEXT: Record<VigilMachineState['status'], string> = {
-  ok: 'Receiving',
-  waiting: 'Waiting for data',
-  no_data: 'No data',
-  unconfirmed: 'Association not confirmed',
-  unassociated: 'Not associated',
-};
 const CONN_TEXT: Record<Connection, string> = {
   connecting: 'Connecting',
   ok: 'Connected',
@@ -40,15 +24,6 @@ const CONN_TEXT: Record<Connection, string> = {
   signed_out: 'Session expired',
 };
 const PLACEMENT: Record<string, string> = { safety_floor: 'safety floor', core: 'core' };
-
-function errorText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-async function post(path: string, body?: unknown) {
-  await apiFetch(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
-  await poll();
-}
 
 function useStore() {
   return useSyncExternalStore(subscribe, getSnapshot);
@@ -457,26 +432,6 @@ function RulesPanel({ state }: { state: Ready | null }) {
 
 // ── machines ──────────────────────────────────────────────────────────────
 
-/** Alert intervals per encounter, from the log plus active alerts. */
-function alertBands(state: Ready, encounter: string): AlertBand[] {
-  const open = new Map<string, [number, VigilAlertView['priority']]>();
-  const bands: AlertBand[] = [];
-  for (const e of [...state.log].reverse()) {
-    if (e.encounter !== encounter) continue;
-    if (e.kind === 'raised') open.set(e.id, [e.at, e.priority]);
-    if (e.kind === 'resolved' && open.has(e.id)) {
-      const [at, pri] = open.get(e.id)!;
-      bands.push([at, e.at, pri]);
-      open.delete(e.id);
-    }
-  }
-  for (const [at, pri] of open.values()) bands.push([at, state.now, pri]);
-  for (const a of state.alerts) {
-    if (a.encounter === encounter && !bands.some((b) => b[0] === a.raised)) bands.push([a.raised, state.now, a.priority]);
-  }
-  return bands;
-}
-
 function Machines({ state, window: win }: { state: Ready | null; window: number }) {
   const machines = state?.machines ?? [];
   return (
@@ -500,224 +455,9 @@ function Machines({ state, window: win }: { state: Ready | null; window: number 
       </div>
       {!machines.length && (
         <p className="empty big">
-          {state ? 'No ECMO machines are tagged to a patient or sending data yet.' : 'Waiting for the server.'}
+          {state ? 'No monitoring machines are tagged to a patient or sending data yet.' : 'Waiting for the server.'}
         </p>
       )}
     </>
-  );
-}
-
-function MachineCard({ m, state }: { m: VigilMachineState; state: Ready }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const bands = m.encounterId ? alertBands(state, m.encounterId) : [];
-  const confirm = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      await post(`/vigil/associations/${encodeURIComponent(m.associationId!)}/confirm`);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <article className={`machine${m.status === 'no_data' ? ' is-nodata' : ''}`} data-alert={m.alertPriority ?? ''} aria-label={`Machine ${m.deviceId}`}>
-      <div className="m-head">
-        <div>
-          <h3>{m.deviceId}</h3>
-          <div className="m-kind">
-            {m.kind} · {m.driver}
-            {m.unmapped ? ` · ${m.unmapped} unmapped values` : ''}
-          </div>
-        </div>
-        <span className={`status ${m.status}`}>
-          {m.status === 'no_data' && m.age != null ? `No live data for ${fmtDur(m.age)}` : STATUS_TEXT[m.status]}
-        </span>
-      </div>
-      <p className="m-patient">
-        {m.encounterId ? (
-          <>
-            Patient <b>{PATIENT(m.patientLabel, m.encounterId)}</b>
-            {m.therapy && ` · ${m.therapy}${m.therapyDetail ? ` ${m.therapyDetail}` : ''}`}
-            {m.confirmedBy ? ` · confirmed by ${m.confirmedBy}` : ' · not confirmed, rules paused'}
-          </>
-        ) : (
-          'Not associated with a patient. Data is recorded but no rules run.'
-        )}
-        {m.alertPriority && (
-          <span className="m-alert">
-            {MARK[m.alertPriority]} {m.alertPriority} alert
-          </span>
-        )}
-      </p>
-      {m.status === 'unconfirmed' && m.associationId && (
-        <div className="confirm-box">
-          <span>Check at the bedside that this console is on this patient before rules start running.</span>
-          <button className="btn" type="button" disabled={busy} onClick={() => void confirm()}>
-            Confirm association
-          </button>
-          {error && <span className="form-error">{error}</span>}
-        </div>
-      )}
-      <div className="m-signals">
-        {m.signals.map((sig) =>
-          sig.kind === 'numeric' ? (
-            <NumericSignal key={sig.code} sig={sig} stale={m.status === 'no_data'} bands={bands} state={state} />
-          ) : sig.kind === 'lab' ? (
-            <LabSignal key={sig.code} sig={sig} state={state} />
-          ) : sig.kind === 'status' ? (
-            <StatusSignal key={sig.code} sig={sig} stale={m.status === 'no_data'} state={state} />
-          ) : (
-            <SettingSignal key={sig.code} sig={sig} state={state} />
-          ),
-        )}
-      </div>
-    </article>
-  );
-}
-
-function QualityChip({ sig, stale }: { sig: VigilSignalState; stale: boolean }) {
-  if (stale) return <span className="chip bad">NO LIVE DATA</span>;
-  if (!(sig.sqi < VIGIL_GOOD_SQI && sig.flags.length)) return null;
-  return (
-    <span className="chip">
-      ⚠ {sig.flags.filter((f) => f !== 'SETTING').join(', ')} · SQI {sig.sqi.toFixed(1)}
-    </span>
-  );
-}
-
-function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; stale: boolean; bands: AlertBand[]; state: Ready }) {
-  const [showTable, setShowTable] = useState(false);
-  const hasLow = sig.points.some((p) => p[2] < VIGIL_GOOD_SQI);
-  return (
-    <div className={`sig${stale ? ' is-old' : ''}`}>
-      <div className="sig-head">
-        <span className="sig-label">{sig.label}</span>
-        <QualityChip sig={sig} stale={stale} />
-      </div>
-      <div className="sig-body">
-        <div className="sig-value">
-          <span className="val">{fmtVal(sig.value)}</span>
-          <span className="unit">{fmtUnit(sig.unit)}</span>
-          <span className="sig-age">updated {fmtAgo(sig.age)}</span>
-        </div>
-        <LineChart sig={sig} now={state.now} win={state.window} bands={bands} simulated={state.simulatedClock} />
-      </div>
-      <div className="sig-foot">
-        <span className="legend">
-          {hasLow && (
-            <>
-              <span>
-                <i className="key-line" />
-                measured
-              </span>
-              <span>
-                <i className="key-ring" />
-                low quality, ignored by rules
-              </span>
-            </>
-          )}
-        </span>
-        <button className="link" type="button" aria-expanded={showTable} onClick={() => setShowTable(!showTable)}>
-          {showTable ? 'Hide values' : 'Show values'}
-        </button>
-      </div>
-      {showTable && (
-        <table className="vals">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th className="num">{fmtUnit(sig.unit)}</th>
-              <th className="num">Quality</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sig.points
-              .slice(-10)
-              .reverse()
-              .map((p) => (
-                <tr key={p[0]}>
-                  <td>{fmtTime(p[0], state.simulatedClock)}</td>
-                  <td className="num">{fmtVal(p[1])}</td>
-                  <td className="num">{p[2] < VIGIL_GOOD_SQI ? `${p[2].toFixed(1)} low` : p[2].toFixed(1)}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-/** A device-reported state or alarm flag: OK / ALARM, and how long it has been so. */
-function StatusSignal({ sig, stale, state }: { sig: VigilSignalState; stale: boolean; state: Ready }) {
-  const active = sig.value >= 0.5;
-  return (
-    <div className={`sig${stale ? ' is-old' : ''}`}>
-      <div className="sig-head">
-        <span className="sig-label">{sig.label}</span>
-      </div>
-      <div className="sig-compact">
-        <span className={`flag ${active ? 'is-alarm' : 'is-ok'}`}>{fmtFlag(sig.value, sig.kind)}</span>
-        <span className="note">
-          {active ? 'active' : 'normal'} for {fmtDur(state.now - sig.changedAt)} · updated {fmtAgo(sig.age)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function SettingSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) {
-  return (
-    <div className="sig">
-      <div className="sig-head">
-        <span className="sig-label">{sig.label}</span>
-      </div>
-      <div className="sig-compact">
-        <span className="val">{sig.unit === 'flag' ? fmtFlag(sig.value, sig.kind) : fmtVal(sig.value)}</span>
-        <span className="unit">{fmtUnit(sig.unit)}</span>
-        <span className="note">
-          setting, unchanged for {fmtDur(state.now - sig.changedAt)} · updated {fmtAgo(sig.age)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function LabSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) {
-  const rows = sig.points.slice(0, -1).slice(-5).reverse();
-  return (
-    <div className="sig">
-      <div className="sig-head">
-        <span className="sig-label">{sig.label}</span>
-      </div>
-      <div className="sig-compact">
-        <span className="val">{fmtVal(sig.value)}</span>
-        <span className="unit">{fmtUnit(sig.unit)}</span>
-        <span className="note">
-          resulted {fmtTime(sig.t, state.simulatedClock)} ({fmtAgo(sig.age)})
-        </span>
-      </div>
-      {rows.length > 0 && (
-        <table className="vals">
-          <thead>
-            <tr>
-              <th>Earlier results</th>
-              <th className="num">{fmtUnit(sig.unit)}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => (
-              <tr key={p[0]}>
-                <td>{fmtTime(p[0], state.simulatedClock)}</td>
-                <td className="num">{fmtVal(p[1])}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
   );
 }

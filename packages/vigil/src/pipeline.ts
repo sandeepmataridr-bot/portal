@@ -5,7 +5,7 @@
  *   SignalQuality         per-channel quality index (0..1) with artifact flags
  *   AssociationRegistry   device -> encounter bindings and therapy episodes
  */
-import { CODE_SYSTEM, DEVICE_CODE_SYSTEM, SIGNALS, SignalKind, UnitConversionError, convert, type Signal } from './codes.js';
+import { CODE_SYSTEM, DEVICE_CODE_SYSTEM, MDC_VITAL_CODES, SIGNALS, SignalKind, UnitConversionError, convert, type Signal } from './codes.js';
 import type { DeviceAssociation, Observation, TherapyEpisode } from './contracts.js';
 import type { RawSample } from './drivers.js';
 
@@ -18,6 +18,8 @@ export const DEFAULT_CODE_MAPS: Record<string, Record<string, string>> = {
     // Our own device firmware (docs/vigil/esp32.md) codes each reading as
     // "<SIGNAL>^<label>^0DH", so it needs no site configuration.
     ...Object.fromEntries(Object.keys(SIGNALS).map((name) => [`${DEVICE_CODE_SYSTEM}:${name}`, name])),
+    // Standard bedside monitors: IEEE 11073 codes ("<code>^<name>^MDC").
+    ...Object.fromEntries(Object.entries(MDC_VITAL_CODES).map(([code, name]) => [`MDC:${code}`, name])),
   },
   sim_ecmo: { QB: 'ECMO_BLOOD_FLOW', DPOXY: 'ECMO_OXY_DELTA_P', SWEEP: 'ECMO_SWEEP_FLOW' },
 };

@@ -53,6 +53,15 @@ const SIGNAL_ORDER = [
   'ECMO_BUBBLE_ALARM',
   'ECMO_LEVEL_ALARM',
   'HU_LOW_WATER',
+  'VITAL_SPO2',
+  'VITAL_PULSE_RATE',
+  'VITAL_HEART_RATE',
+  'VITAL_NIBP_SYS',
+  'VITAL_NIBP_DIA',
+  'VITAL_NIBP_MEAN',
+  'VITAL_RESP_RATE',
+  'VITAL_TEMP',
+  'VITAL_PERFUSION_INDEX',
 ];
 
 interface SignalTrack {
@@ -308,6 +317,12 @@ function machineKind(signals: Map<string, unknown>): string {
   const codes = [...signals.keys()];
   if (codes.some((c) => c.startsWith('ECMO_'))) return 'ECMO console';
   if (codes.some((c) => c.startsWith('BG_'))) return 'Blood gas analyzer';
+  const vitals = codes.filter((c) => c.startsWith('VITAL_'));
+  if (vitals.length) {
+    if (vitals.every((c) => c === 'VITAL_TEMP')) return 'Temperature monitor';
+    if (vitals.every((c) => ['VITAL_SPO2', 'VITAL_PULSE_RATE', 'VITAL_PERFUSION_INDEX'].includes(c))) return 'SpO₂ monitor';
+    return 'Patient monitor';
+  }
   return 'Device';
 }
 

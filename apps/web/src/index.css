@@ -574,6 +574,26 @@ button {
 .mirror-view__controls { margin-top: 16px; }
 .locked-label { color: var(--color-muted); font-size: 0.85rem; }
 
+/* ---------- Patient monitor page ---------- */
+.pm-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.pm-meta { color: var(--color-muted); font-size: 0.85rem; }
+.pm-open { display: inline-block; margin-top: 12px; text-decoration: none; }
+.pm-tabs { position: sticky; top: 0; z-index: 5; background: var(--color-bg); overflow-x: auto; scrollbar-width: none; }
+.pm-tabs .tab-button { white-space: nowrap; flex: 0 0 auto; }
+.pm-window { display: inline-flex; gap: 2px; margin: 0 0 12px; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+.pm-window button { border: 0; background: var(--color-surface); padding: 6px 12px; font-size: 0.85rem; }
+.pm-window button[aria-checked='true'] { background: var(--color-text); color: white; }
+/* Machines side by side on wide screens, one column on phones. */
+.pm-machines { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); align-items: start; }
+.pm-machine .machines { grid-template-columns: 1fr; }
+.pm-machine > .info-card { margin-bottom: 0; }
+.pm-machine-title { margin: 0 0 8px; font-size: 1.05rem; }
+.pm-alerts { display: grid; gap: 6px; margin-bottom: 12px; }
+.pm-alert { padding: 10px 12px; border-radius: 8px; border-left: 6px solid; font-size: 0.9rem; }
+.pm-alert--high { background: #fbeaea; border-color: #d03b3b; }
+.pm-alert--medium { background: #fef4dc; border-color: #fab219; }
+.pm-alert--low, .pm-alert--advisory { background: #e3f4f9; border-color: #2aa7c9; }
+
 /* ---------- Plain form fields (outside .patient-form) ---------- */
 .app-shell select,
 .app-shell input:not([type='checkbox']):not([type='radio']),

@@ -75,6 +75,47 @@ describe('0dh device frames', () => {
     expect(Normalizer.withDefaults().normalize('hl7_pcd01', s, 'as-1').code).toBe('HU_WATER_FLOW');
   });
 
+  it('maps a vitals monitor from the gateway (0DH codes)', () => {
+    const vitals: [string, number, string][] = [
+      ['VITAL_SPO2', 97, '%'],
+      ['VITAL_PULSE_RATE', 82, '{beats}/min'],
+      ['VITAL_HEART_RATE', 81, '{beats}/min'],
+      ['VITAL_NIBP_SYS', 118, 'mm[Hg]'],
+      ['VITAL_NIBP_DIA', 76, 'mm[Hg]'],
+      ['VITAL_NIBP_MEAN', 90, 'mm[Hg]'],
+      ['VITAL_RESP_RATE', 16, '{breaths}/min'],
+      ['VITAL_TEMP', 36.9, 'Cel'],
+      ['VITAL_PERFUSION_INDEX', 2.4, '%'],
+    ];
+    const n = Normalizer.withDefaults();
+    for (const [i, s] of parseOru(gatewayFrame(1792600000, vitals)).entries()) {
+      const obs = n.normalize('hl7_pcd01', s, 'as-1');
+      expect([obs.codeSystem, obs.code, obs.value, obs.flags]).toEqual(['VIGIL', vitals[i][0], vitals[i][1], []]);
+    }
+  });
+
+  it('maps a standard bedside monitor (IEEE 11073 MDC codes and units)', () => {
+    const ts = utcStamp(1792600000);
+    const obx = (i: number, ident: string, value: number, unit: string) =>
+      `OBX|${i}|NM|${ident}||${value}|${unit}|||||F|||${ts}`;
+    const frame = [
+      `MSH|^~\\&|MONITOR|BED-3|0DH|PORTAL|${ts}||ORU^R01^ORU_R01|M1|P|2.6`,
+      `OBR|1|||VITALS|||${ts}`,
+      obx(1, '150456^MDC_PULS_OXIM_SAT_O2^MDC', 96, '262688^MDC_DIM_PERCENT^MDC'),
+      obx(2, '149530^MDC_PULS_OXIM_PULS_RATE^MDC', 88, '264864^MDC_DIM_BEAT_PER_MIN^MDC'),
+      obx(3, '151562^MDC_RESP_RATE^MDC', 18, '264928^MDC_DIM_RESP_PER_MIN^MDC'),
+      obx(4, '150364^MDC_TEMP_BODY^MDC', 98.6, '[degF]^[degF]^UCUM'),
+    ].join('\r');
+    const n = Normalizer.withDefaults();
+    const got = parseOru(`${frame}\r`).map((s) => n.normalize('hl7_pcd01', s, 'as-1'));
+    expect(got.map((o) => [o.code, Math.round(o.value * 10) / 10])).toEqual([
+      ['VITAL_SPO2', 96],
+      ['VITAL_PULSE_RATE', 88],
+      ['VITAL_RESP_RATE', 18],
+      ['VITAL_TEMP', 37],
+    ]);
+  });
+
   it('shows a LIVE console with all its readings before a patient is assigned', () => {
     const engine = new VigilEngine({
       liveMode: true,

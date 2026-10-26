@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { DoctorSummary, MachineType } from '@infusion/shared-types';
-import { MACHINE_TYPES } from '@infusion/shared-types';
+import { MACHINE_TYPES, MACHINE_TYPE_LABEL } from '@infusion/shared-types';
 import { AppShell } from '../../components/AppShell';
 import { StatTile } from '../../components/StatTile';
 import { useFleetStatus, useCreateMachine, useIssueMachineCredential } from '../../features/machines/api';
@@ -68,12 +69,18 @@ function FleetPanel() {
           {fleet?.machines.map((m) => (
             <tr key={m.id}>
               <td>{m.machineCode}</td>
-              <td>{m.machineType}</td>
+              <td>{MACHINE_TYPE_LABEL[m.machineType as MachineType] ?? m.machineType}</td>
               <td>{m.location ?? '—'}</td>
               <td>
                 <span className={`badge ${m.status === 'online' ? 'badge-yes' : 'badge-no'}`}>{m.status}</span>
               </td>
-              <td>{m.assignedPatientId ? patientName(m.assignedPatientId) : '—'}</td>
+              <td>
+                {m.assignedPatientId ? (
+                  <Link to={`/patients/${encodeURIComponent(m.assignedPatientId)}/monitor`}>{patientName(m.assignedPatientId)}</Link>
+                ) : (
+                  '—'
+                )}
+              </td>
               <td>
                 <button type="button" className="link-button" onClick={() => issueFor(m.id)}>
                   🔑 Issue Credential
@@ -138,7 +145,7 @@ function FleetPanel() {
           <select value={form.machineType} onChange={(e) => setForm({ ...form, machineType: e.target.value as MachineType })}>
             {MACHINE_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {MACHINE_TYPE_LABEL[t]}
               </option>
             ))}
           </select>

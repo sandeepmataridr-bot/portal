@@ -60,8 +60,9 @@ platform keeps running. All variables are listed in [apps/api/.env.example](../.
 
 ## Central station
 
-Open `/central-station`, or use the **ECMO central station** link in the header. The page is for `doctor`,
-`admin` and `superuser`. It shows:
+Open `/central-station`, or use the **Central station** link in the header. The page is for `doctor`,
+`admin` and `superuser`. It shows every monitoring machine: ECMO and EBOO consoles and patient monitors
+(SpO₂, temperature, multi-parameter). It shows:
 
 - **Operating-level banner (0–3).** It is part of the page and cannot be hidden.
   - 0: full operation
@@ -80,6 +81,23 @@ Open `/central-station`, or use the **ECMO central station** link in the header.
 - **Confirm association** (on unconfirmed machines). Therapy rules do not run on a machine's data until a clinician
   confirms, at the bedside, that the console really is on the tagged patient.
 - **TEST mode bar.** Scenario picker, speed, restart and progress with annotated events.
+
+## Patient monitor page
+
+`/patients/<patient id>/monitor` shows everything attached to one patient (`doctor`, `admin`, `superuser`).
+Open it from the doctor dashboard (**Open patient monitor**), from a patient's name on a central station
+card, or from the admin fleet table.
+
+- **Tabs:** **All** (every machine one after another, side by side on wide screens) and one tab per machine.
+  The chosen tab stays in the address, so a link reopens the same view.
+- **Monitoring machines** (ECMO, EBOO, monitors): the same card as the central station, with the patient's active
+  alerts above the tabs.
+- **Infusion pumps:** the pump's running screen (flow rate, mode, volumes, times).
+
+Machine types and their therapy: ECMO → `ECMO`, EBOO → `EBOO`, SpO₂ / temperature / multi-parameter monitors →
+`VITALS`. Rules run only on their own therapy, so ECMO rules never see a monitor's data. Vital signs have no alarm
+rules yet: their limits need clinical sign-off. Monitors send through the ESP32 gateway's `PROFILE_VITALS`
+([firmware/PROTOCOL.md](../../firmware/PROTOCOL.md)), or directly with standard IEEE 11073 codes.
 
 **Alarm isolation.** The page polls into a store that lives outside React. If any part of the page crashes, a
 plain-DOM fallback lists the active alarms and keeps updating them.

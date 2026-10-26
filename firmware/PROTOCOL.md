@@ -68,9 +68,33 @@ $EC,4.21,3200,-40,230,190,40,3.0,100,36.8,0,0*19
 $EC,4.21,3200,,,,40,3.0,100,,0,0*2A        (no pressure sensors or blood temperature fitted)
 ```
 
+### `$VS`: patient monitor (gateway `PROFILE_VITALS`)
+
+One gateway per monitor, registered in the portal as **SpO₂ monitor**, **Temperature monitor** or **Multi-parameter monitor**. The monitor's TX goes to the same pin as the ECMO controller's (GPIO 25, or 18 on ESP32-S3). A monitor that lacks a reading leaves its field empty.
+
+| # | Field | Unit | Gateway signal |
+|---|---|---|---|
+| 1 | oxygen saturation (SpO₂) | % | `VITAL_SPO2` |
+| 2 | pulse rate (oximeter) | beats/min | `VITAL_PULSE_RATE` |
+| 3 | heart rate (ECG) | beats/min | `VITAL_HEART_RATE` |
+| 4 | body temperature | °C | `VITAL_TEMP` |
+| 5 | blood pressure, systolic (NIBP) | mmHg | `VITAL_NIBP_SYS` |
+| 6 | blood pressure, diastolic (NIBP) | mmHg | `VITAL_NIBP_DIA` |
+| 7 | blood pressure, mean (NIBP) | mmHg | `VITAL_NIBP_MEAN` |
+| 8 | respiration rate | breaths/min | `VITAL_RESP_RATE` |
+| 9 | perfusion index | % | `VITAL_PERFUSION_INDEX` |
+
+```
+$VS,97,82,81,36.9,118,76,90,16,2.4*29      (multi-parameter monitor)
+$VS,97,82,,,,,,,2.4*05                      (SpO₂ monitor)
+$VS,,,,37.1,,,,,*32                         (temperature monitor)
+```
+
+A standard bedside monitor with its own HL7 output can also send to the portal directly. Its IEEE 11073 codes (e.g. `150456^MDC_PULS_OXIM_SAT_O2^MDC`) map to the same signals with no configuration.
+
 ## Timing and loss
 - Send one line per second.
-- If a controller stays silent for more than 3 s, the gateway stops reporting its readings. The portal then shows those readings ageing, and for the ECMO console raises the communication-lost alarm.
+- If a controller stays silent for more than 3 s, the gateway stops reporting its readings. The portal then shows those readings ageing (the card turns to "No live data"), and for the ECMO console raises the communication-lost alarm.
 - Nothing has to be re-sent: the next line simply carries the current values.
 
 ## Snippet for the ECMO controller

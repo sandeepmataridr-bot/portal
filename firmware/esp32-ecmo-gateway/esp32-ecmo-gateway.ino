@@ -1,19 +1,21 @@
 /*
- * 0dh.in ECMO gateway (Arduino IDE · esp32 core 3.x · board "ESP32 Dev Module",
+ * 0dh.in device gateway (Arduino IDE · esp32 core 3.x · board "ESP32 Dev Module",
  * or "ESP32S3 Dev Module", which uses RX pins 18 and 16 instead; see Settings)
  *
- * Collects the readings the ECMO controller and the heater-unit controller
- * send over serial (firmware/PROTOCOL.md) and, once a second, sends them to
- * the portal as one HL7 PCD-01 ORU^R01 message, exactly as a console on a
- * patient would (docs/vigil/esp32.md). The server cannot tell dummy readings
+ * Collects the readings its controllers send over serial (firmware/PROTOCOL.md)
+ * and, once a second, sends them to the portal as one HL7 PCD-01 ORU^R01
+ * message, exactly as a device on a patient would (docs/vigil/esp32.md).
+ * PROFILE (Settings) picks what it is attached to:
+ *   PROFILE_ECMO    the ECMO controller ($EC) and the heater unit ($HU)
+ *   PROFILE_VITALS  a patient monitor ($VS): SpO2, temperature or multi-parameter The server cannot tell dummy readings
  * from real ones, so nothing changes there when real sensors are connected.
  *
- *   ECMO controller   TX ─────────────────► GPIO 25 (Serial1 RX)
- *   Heater controller TX ──[1k/2k divider]► GPIO 16 (Serial2 RX)
+ *   ECMO controller / monitor TX ─────────► GPIO 25 (Serial1 RX)
+ *   Heater controller TX ──[1k/2k divider]► GPIO 16 (Serial2 RX, ECMO profile)
  *   GND ──────────────────────────────────── GND (all boards together)
  *
  * Set-up: copy secrets.example.h to secrets.h (same folder) and fill it in.
- * DEMO_SOURCES 1 makes the gateway generate both controllers' lines itself,
+ * DEMO_SOURCES 1 makes the gateway generate its controllers' lines itself,
  * so the whole server path can be checked before anything is wired.
  *
  * No extra libraries: WiFi, HTTPClient and WiFiClientSecure come with the
@@ -33,7 +35,11 @@
 #include "secrets.h"  // copy secrets.example.h to secrets.h
 
 // ---------------- Settings ----------------
-#define DEMO_SOURCES 1                 // 1 = simulate both controllers, 0 = read the serial links
+#define DEMO_SOURCES 1                 // 1 = simulate the controllers, 0 = read the serial links
+
+#define PROFILE_ECMO 1                 // ECMO controller ($EC) + heater unit ($HU)
+#define PROFILE_VITALS 2               // patient monitor ($VS): SpO2, temperature or multi-parameter
+#define PROFILE PROFILE_ECMO           // what this board is attached to
 
 #if CONFIG_IDF_TARGET_ESP32S3          // ESP32-S3 boards have no GPIO 25/26
 const int ECMO_RX_PIN = 18;            // Serial1 RX <- ECMO controller TX
@@ -54,7 +60,7 @@ const size_t QUEUE_LEN = 300;          // ~5 minutes of messages kept while offl
 const size_t BATCH_MAX = 20;           // messages per request when catching up
 const uint32_t STATUS_MS = 10000;      // status line on the Serial monitor
 
-// ---------------- Readings (field order = the $EC / $HU line order) ----------------
+// ---------------- Readings (field order = the $EC / $HU / $VS line order) ----------------
 struct Field {
   const char *code;   // Vigil signal name, sent as "<code>^<code>^0DH"
   const char *ucum;   // unit, exactly as the server expects it
@@ -83,12 +89,24 @@ const Field HU_FIELDS[] = {
   {"HU_GT38_ON", "{flag}", 0},
   {"HU_LOW_WATER", "{flag}", 0},
 };
+const Field VS_FIELDS[] = {
+  {"VITAL_SPO2", "%", 0},
+  {"VITAL_PULSE_RATE", "{beats}/min", 0},
+  {"VITAL_HEART_RATE", "{beats}/min", 0},
+  {"VITAL_TEMP", "Cel", 1},
+  {"VITAL_NIBP_SYS", "mm[Hg]", 0},
+  {"VITAL_NIBP_DIA", "mm[Hg]", 0},
+  {"VITAL_NIBP_MEAN", "mm[Hg]", 0},
+  {"VITAL_RESP_RATE", "{breaths}/min", 0},
+  {"VITAL_PERFUSION_INDEX", "%", 1},
+};
 const size_t EC_COUNT = sizeof(EC_FIELDS) / sizeof(EC_FIELDS[0]);
 const size_t HU_COUNT = sizeof(HU_FIELDS) / sizeof(HU_FIELDS[0]);
+const size_t VS_COUNT = sizeof(VS_FIELDS) / sizeof(VS_FIELDS[0]);
 const size_t MAX_FIELDS = 11;
 
 struct Source {
-  const char *tag;          // "EC" or "HU"
+  const char *tag;          // "EC", "HU" or "VS"
   const char *name;         // for the Serial monitor
   const Field *fields;
   size_t count;
@@ -101,17 +119,28 @@ struct Source {
   uint32_t good, bad;
 };
 
-Source ecmo = {"EC", "ECMO", EC_FIELDS, EC_COUNT, &Serial1, {0}, 0, {0}, 0, false, 0, 0};
-Source heater = {"HU", "Heater", HU_FIELDS, HU_COUNT, &Serial2, {0}, 0, {0}, 0, false, 0, 0};
+#if PROFILE == PROFILE_VITALS
+Source sources[] = {
+  {"VS", "Monitor", VS_FIELDS, VS_COUNT, &Serial1, {0}, 0, {0}, 0, false, 0, 0},
+};
+const char *OBR_SERVICE = "VITALS^Patient monitoring^0DH";
+#else
+Source sources[] = {
+  {"EC", "ECMO", EC_FIELDS, EC_COUNT, &Serial1, {0}, 0, {0}, 0, false, 0, 0},
+  {"HU", "Heater", HU_FIELDS, HU_COUNT, &Serial2, {0}, 0, {0}, 0, false, 0, 0},
+};
+const char *OBR_SERVICE = "ECMO^ECMO monitoring^0DH";
+#endif
+const size_t SOURCE_COUNT = sizeof(sources) / sizeof(sources[0]);
+const size_t MAX_SOURCES = 2;
 
 /** One second's readings, waiting to be sent. Declared before any function:
     the Arduino IDE puts its generated function prototypes there. */
 struct Snapshot {
-  uint32_t no;              // message control id
-  time_t t;                 // UTC seconds
-  bool ec, hu;              // which controllers were fresh
-  float ecv[EC_COUNT];
-  float huv[HU_COUNT];
+  uint32_t no;                       // message control id
+  time_t t;                          // UTC seconds
+  bool fresh[MAX_SOURCES];           // which controllers were heard recently
+  float v[MAX_SOURCES][MAX_FIELDS];  // their latest values (NAN = not fitted)
 };
 
 uint8_t xorSum(const char *s, size_t n) {
@@ -182,7 +211,7 @@ void pollSource(Source &src) {
 bool fresh(const Source &src) { return src.heard && millis() - src.heardAt <= FRESH_MS; }
 
 #if DEMO_SOURCES
-// ---------------- Demo: both controllers simulated here ----------------
+// ---------------- Demo: the controllers simulated here ----------------
 void feedDemo(Source &src, const char *body) {
   char line[128];
   snprintf(line, sizeof(line), "$%s*%02X", body, xorSum(body, strlen(body)));
@@ -190,7 +219,25 @@ void feedDemo(Source &src, const char *body) {
   else src.bad++;
 }
 
+#if PROFILE == PROFILE_VITALS
+// A patient monitor: saturation, pulse and NIBP drift gently; respiration and
+// temperature slower. A SpO2- or temperature-only monitor sends empty fields.
 void demoTick() {
+  const float t = millis() / 1000.0f;
+  const float spo2 = 96.0f + sinf(t / 13.0f) * 2.0f + random(-1, 2) * 0.4f;
+  const float pr = 82.0f + sinf(t / 9.0f) * 5.0f + random(-1, 2);
+  const float sys = 118.0f + sinf(t / 30.0f) * 6.0f;
+  const float dia = 76.0f + sinf(t / 30.0f) * 4.0f;
+  char body[112];
+  snprintf(body, sizeof(body), "VS,%.0f,%.0f,%.0f,%.1f,%.0f,%.0f,%.0f,%.0f,%.1f", spo2, pr, pr - 1.0f,
+           36.9f + sinf(t / 60.0f) * 0.2f, sys, dia, (sys + 2.0f * dia) / 3.0f, 16.0f + sinf(t / 11.0f) * 2.0f,
+           2.4f + sinf(t / 7.0f) * 0.4f);
+  feedDemo(sources[0], body);
+}
+#else
+void demoTick() {
+  Source &ecmo = sources[0];
+  Source &heater = sources[1];
   static float huTemp = 30.0f, huLevel = 90.0f;
   static bool refilling = false;
   static uint32_t lastSetpoint = 0;
@@ -235,6 +282,7 @@ void demoTick() {
   feedDemo(ecmo, body);
 }
 #endif
+#endif
 
 // ---------------- Message queue ----------------
 Snapshot queueBuf[QUEUE_LEN];
@@ -256,13 +304,15 @@ bool clockValid() { return time(nullptr) > 1700000000; }
 void takeSnapshot() {
   if (!clockValid()) return;               // never send without a real time
   Snapshot s;
-  s.ec = fresh(ecmo);
-  s.hu = fresh(heater);
-  if (!s.ec && !s.hu) return;              // nothing to report: the server sees the gap
+  bool any = false;
+  for (size_t i = 0; i < SOURCE_COUNT; i++) {
+    s.fresh[i] = fresh(sources[i]);
+    any = any || s.fresh[i];
+    memcpy(s.v[i], sources[i].values, sizeof(s.v[i]));
+  }
+  if (!any) return;                        // nothing to report: the server sees the gap
   s.no = ++messageNo;
   s.t = time(nullptr);
-  memcpy(s.ecv, ecmo.values, sizeof(s.ecv));
-  memcpy(s.huv, heater.values, sizeof(s.huv));
   enqueue(s);
 }
 
@@ -309,12 +359,16 @@ String buildFrame(const Snapshot &s) {
   f += "||ORU^R01^ORU_R01|";
   f += ctrl;
   f += "|P|2.6\r";
-  f += "OBR|1|||ECMO^ECMO monitoring^0DH|||";
+  f += "OBR|1|||";
+  f += OBR_SERVICE;
+  f += "|||";
   f += ts;
   f += '\r';
   int setId = 0;
-  if (s.ec) for (size_t i = 0; i < EC_COUNT; i++) appendObx(f, setId, EC_FIELDS[i], s.ecv[i], ts);
-  if (s.hu) for (size_t i = 0; i < HU_COUNT; i++) appendObx(f, setId, HU_FIELDS[i], s.huv[i], ts);
+  for (size_t k = 0; k < SOURCE_COUNT; k++) {
+    if (!s.fresh[k]) continue;
+    for (size_t i = 0; i < sources[k].count; i++) appendObx(f, setId, sources[k].fields[i], s.v[k][i], ts);
+  }
   return f;
 }
 
@@ -428,8 +482,7 @@ void printStatus() {
   if (WiFi.status() == WL_CONNECTED) Serial.printf("[gateway] Wi-Fi ok %d dBm", WiFi.RSSI());
   else Serial.print("[gateway] Wi-Fi connecting...");
   Serial.print(clockValid() ? " | clock ok" : " | waiting for time");
-  printLink(ecmo);
-  printLink(heater);
+  for (size_t i = 0; i < SOURCE_COUNT; i++) printLink(sources[i]);
   Serial.printf(" | queued %u", (unsigned)qCount);
   if (droppedOffline) Serial.printf(" (%lu lost offline)", (unsigned long)droppedOffline);
   Serial.printf(" | last send: %s\n", lastResult.c_str());
@@ -439,7 +492,8 @@ void printStatus() {
 void setup() {
   Serial.begin(115200);
   Serial.println();
-  Serial.printf("0dh.in ECMO gateway for %s -> %s%s\n", MACHINE_CODE, SERVER_URL, DEMO_SOURCES ? "  [DEMO_SOURCES: simulated controllers]" : "");
+  Serial.printf("0dh.in %s gateway for %s -> %s%s\n", PROFILE == PROFILE_VITALS ? "patient monitor" : "ECMO", MACHINE_CODE, SERVER_URL,
+                DEMO_SOURCES ? "  [DEMO_SOURCES: simulated controllers]" : "");
 
   Serial1.setRxBufferSize(2048);           // holds several seconds of lines while a send is in progress
   Serial1.begin(LINK_BAUD, SERIAL_8N1, ECMO_RX_PIN, ECMO_TX_PIN);
@@ -459,8 +513,7 @@ void setup() {
 
 void loop() {
 #if !DEMO_SOURCES
-  pollSource(ecmo);
-  pollSource(heater);
+  for (size_t i = 0; i < SOURCE_COUNT; i++) pollSource(sources[i]);
 #endif
   static uint32_t lastFrame = 0, lastStatus = 0;
   const uint32_t now = millis();

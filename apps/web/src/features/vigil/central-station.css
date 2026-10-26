@@ -39,6 +39,12 @@
   font: 14px/1.45 var(--font);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+/* A machine card shown inside another page (the patient monitor). */
+.vigil-cs.is-embedded {
+  min-height: 0;
+  background: transparent;
+  padding-bottom: 0;
+}
 @media (prefers-color-scheme: dark) {
   .vigil-cs:not([data-theme="light"]) {
   color-scheme: dark;

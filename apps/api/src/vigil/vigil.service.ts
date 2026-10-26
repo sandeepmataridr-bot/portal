@@ -31,8 +31,11 @@ import {
   type VigilConfig,
 } from '@infusion/vigil';
 import {
+  VIGIL_MACHINE_TYPES,
   VIGIL_SPEEDS,
+  VIGIL_THERAPY,
   VIGIL_WINDOWS,
+  isVigilMachineType,
   type VigilControllerState,
   type VigilIngestInput,
   type VigilIngestResult,
@@ -44,7 +47,7 @@ import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/types.js';
 import { VigilAuditService } from './vigil-audit.service.js';
 
-/** How often LIVE mode re-reads patient↔ECMO assignments (tag/untag/confirm elsewhere). */
+/** How often LIVE mode re-reads patient↔machine assignments (tag/untag/confirm elsewhere). */
 const ASSOCIATION_SYNC_MS = 10_000;
 /** TEST-mode playback timer resolution. */
 const PLAYBACK_MS = 100;
@@ -293,20 +296,21 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Mirrors active patient↔ECMO assignments into the engine: new ones are
+   * Mirrors active patient↔machine assignments (ECMO, EBOO, monitors) into the engine: new ones are
    * added, ended ones end (resolving their alerts), and confirmations made
    * through the central station are applied.
    */
   private async doSyncAssociations(): Promise<void> {
     const engine = this.engine;
     if (!engine || !engine.liveMode) return;
-    const ecmo = await this.prisma.machine.findMany({ where: { machineType: 'ECMO' }, select: { id: true, machineCode: true } });
+    const vigilTypes = { in: [...VIGIL_MACHINE_TYPES] };
+    const machines = await this.prisma.machine.findMany({ where: { machineType: vigilTypes }, select: { id: true, machineCode: true } });
     this.machineIds.clear();
-    for (const m of ecmo) this.machineIds.set(m.machineCode, m.id);
+    for (const m of machines) this.machineIds.set(m.machineCode, m.id);
     const active = await this.prisma.patientMachineAssignment.findMany({
-      where: { unassignedAt: null, machine: { machineType: 'ECMO' } },
+      where: { unassignedAt: null, machine: { machineType: vigilTypes } },
       include: {
-        machine: { select: { machineCode: true } },
+        machine: { select: { machineCode: true, machineType: true } },
         patient: { select: { id: true, fullName: true, ipNumber: true } },
         vigilConfirmedBy: { select: { loginId: true } },
       },
@@ -339,7 +343,7 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
             confirmed: a.vigilConfirmedAt !== null,
             confirmedBy,
           },
-          { episodeId, encounterId: a.patient.id, therapy: 'ECMO', start, end: null, attributes: {} },
+          { episodeId, encounterId: a.patient.id, therapy: therapyOf(a.machine.machineType), start, end: null, attributes: {} },
         );
       } else if (!existing.confirmed && a.vigilConfirmedAt) {
         engine.confirmAssociation(a.id, confirmedBy);
@@ -347,7 +351,7 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** LIVE-mode device data from an authenticated ECMO machine. */
+  /** LIVE-mode device data from an authenticated monitoring machine (ECMO, EBOO, patient monitors). */
   async ingest(machineId: string, input: VigilIngestInput): Promise<VigilIngestResult> {
     if (!this.cfg) throw new ServiceUnavailableException(this.configError || 'Vigil is not running');
     if (!this.cfg.liveMode || !this.engine) {
@@ -356,7 +360,7 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
     }
     const machine = await this.prisma.machine.findUnique({ where: { id: machineId } });
     if (!machine) throw new NotFoundException('Machine not found');
-    if (machine.machineType !== 'ECMO') throw new ForbiddenException('Only ECMO machines send Vigil monitoring data');
+    if (!isVigilMachineType(machine.machineType)) throw new ForbiddenException('Only monitoring machines (ECMO, EBOO, patient monitors) send Vigil data');
     if (!this.machineIds.has(machine.machineCode)) await this.syncAssociations();
 
     const acks: string[] = [];
@@ -410,8 +414,8 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
       where: { id: associationId },
       include: { machine: true },
     });
-    if (!assignment || assignment.unassignedAt || assignment.machine.machineType !== 'ECMO') {
-      throw new NotFoundException('No active ECMO assignment with that id');
+    if (!assignment || assignment.unassignedAt || !isVigilMachineType(assignment.machine.machineType)) {
+      throw new NotFoundException('No active monitoring assignment with that id');
     }
     if (assignment.vigilConfirmedAt) throw new ConflictException('Association is already confirmed');
     await this.prisma.patientMachineAssignment.update({
@@ -440,4 +444,9 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   verifyAudit() {
     return this.ledger.verify(this.mode);
   }
+}
+
+/** The Vigil therapy a machine type's data belongs to (ECMO rules run only on ECMO). */
+function therapyOf(machineType: string): string {
+  return isVigilMachineType(machineType) ? VIGIL_THERAPY[machineType] : 'ECMO';
 }

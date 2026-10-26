@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AppShell } from '../../components/AppShell';
 import { StatTile } from '../../components/StatTile';
 import { MachineStatusTile } from '../../components/MachineStatusTile';
@@ -40,6 +41,18 @@ export function DoctorDashboard() {
             ))}
           </select>
         </label>
+        {patients && patients.length === 0 && (
+          <p className="form-hint">
+            No patients are assigned to you. Reception chooses each patient&apos;s doctor when registering them.
+          </p>
+        )}
+        {patient && (
+          <Link className="btn-primary pm-open" to={`/patients/${encodeURIComponent(patient.id)}/monitor`}>
+            🩺 Open patient monitor
+            {patient.machineAssignments.length > 0 &&
+              ` (${patient.machineAssignments.length} machine${patient.machineAssignments.length === 1 ? '' : 's'})`}
+          </Link>
+        )}
       </div>
 
       {patient && (

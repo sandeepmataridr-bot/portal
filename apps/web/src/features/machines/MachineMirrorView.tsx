@@ -3,24 +3,15 @@ import type { InfusionCommandType } from '@infusion/shared-types';
 import { Modal } from '../../components/Modal';
 import { useAuth } from '../../auth/AuthContext';
 import { useLiveStatus } from '../infusions/api';
+import { InfusionLiveCard } from '../infusions/InfusionLiveCard';
 import { usePatients } from '../patients/api';
 import { ApiError } from '../../lib/api';
 import { useFleetStatus, useMachineCommands, useSendMachineCommand } from './api';
 
-function formatMinutesAsSeconds(min: number) {
-  return `${Math.round(min * 60)} Sec`;
-}
-
-function formatRemainingTime(remainingVolumeMl: number, flowRateMlPerH: number) {
-  if (flowRateMlPerH <= 0) return '— Min';
-  return `${Math.round((remainingVolumeMl / flowRateMlPerH) * 60)} Min`;
-}
-
 /**
- * Faithful visual replica of the real machine's running screen — read
- * directly from InfusionApp2's activity_infusion_monitor.xml (flow-rate
- * hero number + pump icon, a "mode" card, a "status" card with the 5-stat
- * row), not guessed. Any role that can reach this sees live telemetry;
+ * Faithful visual replica of the real machine's running screen
+ * (InfusionLiveCard, from InfusionApp2's activity_infusion_monitor.xml).
+ * Any role that can reach this sees live telemetry;
  * the pause/resume/stop/flow-rate-adjust controls below are superuser-only
  * (plan § "Super-user remote commands") — the one deliberate, narrow
  * exception to "the machine always decides."
@@ -52,56 +43,7 @@ export function MachineMirrorView({ machineId, machineCode, onClose }: { machine
           {!status && <span className="form-hint">No live telemetry reported for this machine yet.</span>}
         </div>
 
-        {status && (
-          <div className="mirror-view__body">
-            <div className="mirror-view__flow">
-              <p className="mirror-view__flow-unit">mL/h</p>
-              <p className="mirror-view__flow-label">Flow Rate</p>
-              <p className="mirror-view__flow-value">{status.flowRateMlPerH}</p>
-              <p className="mirror-view__pump-icon">💧</p>
-            </div>
-
-            <div className="mirror-view__cards">
-              <div className="info-card mirror-view__mode-card">
-                <p>
-                  <b>Working Mode:</b> <span className="mirror-view__accent">{status.workingMode ?? '—'}</span>
-                </p>
-                <div className="mirror-view__row">🧑‍⚕️ Patient Name : {patient?.fullName ?? status.patientId}</div>
-                <div className="mirror-view__row">🏷️ IP no : {patient?.ipNumber ?? '—'}</div>
-                <div className="mirror-view__row">💉 Dispensing : {status.pumpState === 'RUNNING' ? 'Active' : status.pumpState}</div>
-                <div className="mirror-view__row">💊 Current Drug : {status.currentMedicineName ?? 'None'}</div>
-              </div>
-
-              <div className="info-card mirror-view__status-card">
-                <p>
-                  <b>Working Status:</b> <span className="mirror-view__accent">{status.workingStatusRaw ?? status.pumpState}</span>
-                </p>
-                <div className="detail-grid">
-                  <div>
-                    <b>Disp. Volume</b>
-                    <p>{status.dispensedVolumeMl} mL</p>
-                  </div>
-                  <div>
-                    <b>Disp. Time</b>
-                    <p>{formatMinutesAsSeconds(status.infusedTimeMin)}</p>
-                  </div>
-                  <div>
-                    <b>Remaining vol</b>
-                    <p>{status.remainingVolumeMl} mL</p>
-                  </div>
-                  <div>
-                    <b>Rem. Time</b>
-                    <p>{formatRemainingTime(status.remainingVolumeMl, status.flowRateMlPerH)}</p>
-                  </div>
-                  <div>
-                    <b>Pause time</b>
-                    <p>{status.pauseTimeSec ?? 0} Sec</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {status && <InfusionLiveCard status={status} patientName={patient?.fullName ?? status.patientId} ipNumber={patient?.ipNumber ?? '—'} />}
 
         {isSuperuser && (
           <div className="info-card mirror-view__controls">

@@ -17,18 +17,54 @@ import { z } from 'zod';
  *   telemetry belongs to) and is treated as immediately `accepted`, since
  *   there's no device round-trip to wait for.
  *
+ * - SPO2_MONITOR, TEMP_MONITOR and PATIENT_MONITOR (multi-parameter: SpO₂,
+ *   heart rate, NIBP, temperature, respiration) are unidirectional too.
+ *
  * ECMO/EBOO have no dedicated order/step/live-status tables yet — this is
  * the "framework now, specifics later" placeholder; their own domain
  * modules (mirroring InfusionModule) get built once their clinical
  * parameters are defined.
  */
-export const MACHINE_TYPES = ['INFUSION_PUMP', 'ECMO', 'EBOO'] as const;
+export const MACHINE_TYPES = ['INFUSION_PUMP', 'ECMO', 'EBOO', 'SPO2_MONITOR', 'TEMP_MONITOR', 'PATIENT_MONITOR'] as const;
 export type MachineType = (typeof MACHINE_TYPES)[number];
 
 export const MACHINE_TYPE_DIRECTIONALITY: Record<MachineType, 'bidirectional' | 'unidirectional'> = {
   INFUSION_PUMP: 'bidirectional',
   ECMO: 'unidirectional',
   EBOO: 'unidirectional',
+  SPO2_MONITOR: 'unidirectional',
+  TEMP_MONITOR: 'unidirectional',
+  PATIENT_MONITOR: 'unidirectional',
+};
+
+/** Human names for the screen. */
+export const MACHINE_TYPE_LABEL: Record<MachineType, string> = {
+  INFUSION_PUMP: 'Infusion pump',
+  ECMO: 'ECMO',
+  EBOO: 'EBOO',
+  SPO2_MONITOR: 'SpO₂ monitor',
+  TEMP_MONITOR: 'Temperature monitor',
+  PATIENT_MONITOR: 'Multi-parameter monitor',
+};
+
+/**
+ * Types whose readings arrive as HL7 PCD-01 messages at POST /vigil/ingest
+ * and are shown by Vigil (central station, patient monitor page).
+ */
+export const VIGIL_MACHINE_TYPES = ['ECMO', 'EBOO', 'SPO2_MONITOR', 'TEMP_MONITOR', 'PATIENT_MONITOR'] as const satisfies readonly MachineType[];
+export type VigilMachineType = (typeof VIGIL_MACHINE_TYPES)[number];
+
+export function isVigilMachineType(type: string): type is VigilMachineType {
+  return (VIGIL_MACHINE_TYPES as readonly string[]).includes(type);
+}
+
+/** The Vigil therapy each type's data belongs to; therapy rules (ECMO …) run only on their own type. */
+export const VIGIL_THERAPY: Record<VigilMachineType, string> = {
+  ECMO: 'ECMO',
+  EBOO: 'EBOO',
+  SPO2_MONITOR: 'VITALS',
+  TEMP_MONITOR: 'VITALS',
+  PATIENT_MONITOR: 'VITALS',
 };
 
 export function isBidirectionalMachineType(type: MachineType): boolean {
