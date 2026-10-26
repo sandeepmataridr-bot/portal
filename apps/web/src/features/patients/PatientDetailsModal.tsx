@@ -1,5 +1,9 @@
+import { useState } from 'react';
 import { Modal } from '../../components/Modal';
+import { useAuth } from '../../auth/AuthContext';
 import { usePatient } from './api';
+import { ChangeDoctorForm } from './ChangeDoctorForm';
+import { EditIdentityForm } from './EditIdentityForm';
 import { PatientTimeline } from './PatientTimeline';
 
 function yesNo(v: boolean) {
@@ -8,6 +12,11 @@ function yesNo(v: boolean) {
 
 export function PatientDetailsModal({ patientId, onClose }: { patientId: string; onClose: () => void }) {
   const { data: patient, isLoading } = usePatient(patientId);
+  const { user } = useAuth();
+  const [changingDoctor, setChangingDoctor] = useState(false);
+  const [editingIdentity, setEditingIdentity] = useState(false);
+  const isFrontDesk = user?.role === 'reception' || user?.role === 'admin';
+  const canChangeDoctor = isFrontDesk && patient && !patient.discharged;
 
   return (
     <Modal title="Patient Details" onClose={onClose} wide>
@@ -15,41 +24,52 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
         <p>Loading…</p>
       ) : (
         <div className="patient-details">
-          <h4 className="form-section-title">👤 Patient Identity</h4>
-          <div className="detail-grid">
-            <div>
-              <b>IP Number</b>
-              <p>{patient.ipNumber}</p>
+          <h4 className="form-section-title section-with-action">
+            👤 Patient Identity
+            {isFrontDesk && !editingIdentity && (
+              <button type="button" className="link-button" onClick={() => setEditingIdentity(true)}>
+                ✏️ Edit
+              </button>
+            )}
+          </h4>
+          {editingIdentity ? (
+            <EditIdentityForm patient={patient} onDone={() => setEditingIdentity(false)} />
+          ) : (
+            <div className="detail-grid">
+              <div>
+                <b>IP Number</b>
+                <p>{patient.ipNumber}</p>
+              </div>
+              <div>
+                <b>Name</b>
+                <p>{patient.fullName}</p>
+              </div>
+              <div>
+                <b>Age</b>
+                <p>{patient.age}</p>
+              </div>
+              <div>
+                <b>Gender</b>
+                <p>{patient.gender}</p>
+              </div>
+              <div>
+                <b>Mobile</b>
+                <p>{patient.mobile}</p>
+              </div>
+              <div>
+                <b>Emergency Contact</b>
+                <p>{patient.emergencyContact}</p>
+              </div>
+              <div>
+                <b>Aadhar</b>
+                <p>{patient.aadhar}</p>
+              </div>
+              <div>
+                <b>Address</b>
+                <p>{patient.address ?? '—'}</p>
+              </div>
             </div>
-            <div>
-              <b>Name</b>
-              <p>{patient.fullName}</p>
-            </div>
-            <div>
-              <b>Age</b>
-              <p>{patient.age}</p>
-            </div>
-            <div>
-              <b>Gender</b>
-              <p>{patient.gender}</p>
-            </div>
-            <div>
-              <b>Mobile</b>
-              <p>{patient.mobile}</p>
-            </div>
-            <div>
-              <b>Emergency Contact</b>
-              <p>{patient.emergencyContact}</p>
-            </div>
-            <div>
-              <b>Aadhar</b>
-              <p>{patient.aadhar}</p>
-            </div>
-            <div>
-              <b>Address</b>
-              <p>{patient.address ?? '—'}</p>
-            </div>
-          </div>
+          )}
 
           <h4 className="form-section-title">🩺 Vitals &amp; Clinical</h4>
           <div className="detail-grid">
@@ -81,13 +101,30 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
             </div>
             <div>
               <b>Doctor</b>
-              <p>{patient.doctor ? `Dr. ${patient.doctor.name}` : '—'}</p>
+              <p>
+                {patient.doctor ? `Dr. ${patient.doctor.name}` : '—'}
+                {canChangeDoctor && !changingDoctor && (
+                  <>
+                    {' '}
+                    <button type="button" className="link-button" onClick={() => setChangingDoctor(true)}>
+                      ✏️ Change
+                    </button>
+                  </>
+                )}
+              </p>
             </div>
             <div>
               <b>Discharged</b>
               <p>{yesNo(patient.discharged)}</p>
             </div>
           </div>
+
+          {changingDoctor && (
+            <div className="info-card">
+              <h4 className="form-section-title">✏️ Change doctor</h4>
+              <ChangeDoctorForm patientId={patient.id} currentDoctorId={patient.doctor?.id ?? null} onDone={() => setChangingDoctor(false)} />
+            </div>
+          )}
 
           <h4 className="form-section-title">📋 Medical History &amp; Conditions</h4>
           <div className="condition-detail-grid">

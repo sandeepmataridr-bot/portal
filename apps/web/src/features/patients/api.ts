@@ -4,6 +4,8 @@ import type {
   ReadmitPatientInput,
   DischargePatientInput,
   PatientClinicalUpdateInput,
+  ChangePatientDoctorInput,
+  UpdatePatientIdentityInput,
 } from '@infusion/shared-types';
 import { apiFetch } from '../../lib/api';
 
@@ -122,6 +124,30 @@ export function useDischargePatient() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: DischargePatientInput }) =>
       apiFetch<PatientDetail>(`/patients/${id}/discharge`, { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+/** Reception/admin: correct identity details (IP number and name stay fixed). */
+export function useUpdatePatientIdentity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdatePatientIdentityInput }) =>
+      apiFetch<PatientDetail>(`/patients/${id}/identity`, { method: 'PATCH', body: JSON.stringify(input) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+/** Reception/admin: move the patient to another attending doctor (recorded in the history). */
+export function useChangePatientDoctor() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ChangePatientDoctorInput }) =>
+      apiFetch<PatientDetail>(`/patients/${id}/doctor`, { method: 'PATCH', body: JSON.stringify(input) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
     },

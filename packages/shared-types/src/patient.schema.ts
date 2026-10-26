@@ -102,6 +102,36 @@ export const dischargePatientSchema = z.object({
 });
 export type DischargePatientInput = z.infer<typeof dischargePatientSchema>;
 
+/**
+ * Reception (or admin) corrects a patient's identity details. IP number and
+ * full name are fixed once registered and are never part of this payload.
+ */
+export const PATIENT_FIXED_FIELDS = ['ipNumber', 'fullName'] as const;
+// Any subset of the editable fields; .strict() refuses ipNumber/fullName outright.
+export const updatePatientIdentitySchema = patientIdentitySchema.omit({ ipNumber: true, fullName: true }).partial().strict();
+export type UpdatePatientIdentityInput = z.infer<typeof updatePatientIdentitySchema>;
+
+/**
+ * Reception (or admin) moves a patient to another attending doctor. The
+ * reason is recorded in the patient's history timeline (DOCTOR_REASSIGNED).
+ */
+export const DOCTOR_CHANGE_REASONS = ['wrong_doctor', 'doctor_unavailable', 'new_issue', 'other'] as const;
+export type DoctorChangeReason = (typeof DOCTOR_CHANGE_REASONS)[number];
+export const DOCTOR_CHANGE_REASON_LABEL: Record<DoctorChangeReason, string> = {
+  wrong_doctor: 'Assigned to the wrong doctor',
+  doctor_unavailable: 'Doctor unavailable',
+  new_issue: 'Earlier issue resolved, new issue',
+  other: 'Other',
+};
+export const changePatientDoctorSchema = z
+  .object({
+    doctorId: z.string().uuid('Choose the new doctor'),
+    reason: z.enum(DOCTOR_CHANGE_REASONS),
+    note: z.string().trim().max(500).optional(),
+  })
+  .refine((v) => v.reason !== 'other' || !!v.note, { message: 'Say why the doctor is changing', path: ['note'] });
+export type ChangePatientDoctorInput = z.infer<typeof changePatientDoctorSchema>;
+
 // Doctor's own clinical edit (doctor.html "Patient Details" + "Doctor
 // Summary" sections) — never reassigns the attending doctor, that's a
 // reception/doctor machine-tagging-style action handled separately.

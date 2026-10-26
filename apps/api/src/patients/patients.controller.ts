@@ -5,12 +5,16 @@ import {
   dischargePatientSchema,
   patientClinicalUpdateSchema,
   tagPatientMachineSchema,
+  changePatientDoctorSchema,
+  updatePatientIdentitySchema,
   ROLES,
   type RegisterPatientInput,
   type ReadmitPatientInput,
   type DischargePatientInput,
   type PatientClinicalUpdateInput,
   type TagPatientMachineInput,
+  type ChangePatientDoctorInput,
+  type UpdatePatientIdentityInput,
 } from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -68,6 +72,30 @@ export class PatientsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.patients.discharge(id, body, user);
+  }
+
+  // Reception corrects identity details; IP number and name stay fixed (the
+  // schema rejects them). Recorded in the history.
+  @Roles('admin', 'reception')
+  @Patch(':id/identity')
+  updateIdentity(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updatePatientIdentitySchema)) body: UpdatePatientIdentityInput,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patients.updateIdentity(id, body, user);
+  }
+
+  // Reception moves a patient to another attending doctor (wrong doctor at
+  // registration, doctor unavailable, a new issue); recorded in the history.
+  @Roles('admin', 'reception')
+  @Patch(':id/doctor')
+  changeDoctor(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(changePatientDoctorSchema)) body: ChangePatientDoctorInput,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patients.changeDoctor(id, body, user);
   }
 
   @Roles('admin', 'doctor')

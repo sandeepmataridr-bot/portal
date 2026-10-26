@@ -498,6 +498,13 @@ button {
 .badge-readmit-update { background: #ffe0b2; color: #ef6c00; }
 .badge-discharge { background: #ffcdd2; color: #c62828; }
 .badge-doctor-update { background: #bbdefb; color: #1565c0; }
+.badge-doctor-reassigned { background: #d1c4e9; color: #4527a0; }
+.badge-identity-update { background: #b2ebf2; color: #006064; }
+.section-with-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-with-action .link-button { font-size: 0.9rem; }
+.edit-identity input:disabled { background: #eceff1; color: var(--color-muted); }
+.change-doctor label { margin-bottom: 10px; }
+.change-doctor select, .change-doctor textarea { width: 100%; }
 .badge-insurance-approved { background: #a5d6a7; color: #1b5e20; }
 .badge-insurance-partially-approved { background: #ffe0b2; color: #e65100; }
 .badge-insurance-rejected { background: #ef9a9a; color: #b71c1c; }

@@ -5,6 +5,8 @@ import type {
   ReadmitPatientInput,
   DischargePatientInput,
   PatientClinicalUpdateInput,
+  ChangePatientDoctorInput,
+  UpdatePatientIdentityInput,
 } from '@infusion/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -340,6 +342,100 @@ export class PatientsService {
     } else {
       await this.prisma.$transaction(run);
     }
+  }
+
+  /**
+   * Corrects identity details (age, gender, mobile, emergency contact,
+   * Aadhar, address). IP number and full name are never changed. The
+   * IDENTITY_UPDATE history entry lists each changed field, before and after.
+   */
+  async updateIdentity(id: string, input: UpdatePatientIdentityInput, actor: AuthenticatedUser) {
+    const fields = ['age', 'gender', 'mobile', 'emergencyContact', 'aadhar', 'address'] as const;
+    let changes: { field: string; from: unknown; to: unknown }[] = [];
+    await this.prisma.$transaction(async (tx) => {
+      const patient = await tx.patient.findUnique({ where: { id } });
+      if (!patient) throw new NotFoundException('Patient not found');
+      changes = fields
+        .filter((f) => input[f] !== undefined && (input[f] ?? null) !== (patient[f] ?? null))
+        .map((f) => ({ field: f, from: patient[f] ?? null, to: input[f] ?? null }));
+      if (!changes.length) throw new ConflictException('Nothing changed');
+
+      const nextVersion = patient.version + 1;
+      const result = await tx.patient.update({
+        where: { id },
+        data: { ...Object.fromEntries(changes.map((c) => [c.field, c.to])), version: nextVersion },
+      });
+      await tx.patientHistory.create({
+        data: {
+          patientId: id,
+          version: nextVersion,
+          action: 'IDENTITY_UPDATE',
+          snapshot: toSnapshot({ ...result, changes }),
+          actedBy: actor.loginId,
+        },
+      });
+    });
+
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'PATIENT_IDENTITY_UPDATE',
+      entityTable: 'patients',
+      entityId: id,
+      after: { fields: changes.map((c) => c.field) },
+    });
+
+    return this.getById(id);
+  }
+
+  /**
+   * Moves an admitted patient to another attending doctor. The DOCTOR_REASSIGNED
+   * history entry keeps both doctors and the reason, so the timeline shows
+   * who looked after the patient when, and why it changed.
+   */
+  async changeDoctor(id: string, input: ChangePatientDoctorInput, actor: AuthenticatedUser) {
+    await this.prisma.$transaction(async (tx) => {
+      const patient = await tx.patient.findUnique({ where: { id }, include: { doctor: true } });
+      if (!patient) throw new NotFoundException('Patient not found');
+      if (patient.discharged) throw new ConflictException('Patient is discharged; readmit them to choose a doctor');
+      if (patient.doctorProfileId === input.doctorId) throw new ConflictException('The patient is already with this doctor');
+      const doctor = await tx.doctorProfile.findUnique({ where: { id: input.doctorId }, include: { user: true } });
+      if (!doctor || (doctor.user && !doctor.user.isActive)) throw new BadRequestException('Choose an active doctor');
+
+      const nextVersion = patient.version + 1;
+      const result = await tx.patient.update({
+        where: { id },
+        data: { doctorProfileId: doctor.id, version: nextVersion },
+      });
+      await tx.patientHistory.create({
+        data: {
+          patientId: id,
+          version: nextVersion,
+          action: 'DOCTOR_REASSIGNED',
+          snapshot: toSnapshot({
+            ...result,
+            fromDoctorId: patient.doctorProfileId,
+            fromDoctorName: patient.doctor?.name ?? null,
+            toDoctorId: doctor.id,
+            toDoctorName: doctor.name,
+            reason: input.reason,
+            note: input.note ?? null,
+          }),
+          actedBy: actor.loginId,
+        },
+      });
+    });
+
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'PATIENT_DOCTOR_CHANGED',
+      entityTable: 'patients',
+      entityId: id,
+      after: { doctorId: input.doctorId, reason: input.reason },
+    });
+
+    return this.getById(id);
   }
 
   async updateClinical(id: string, input: PatientClinicalUpdateInput, actor: AuthenticatedUser) {
