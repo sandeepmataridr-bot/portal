@@ -31,19 +31,29 @@ export class MachinesService {
   async listAll(): Promise<MachineSummary[]> {
     const machines = await this.prisma.machine.findMany({
       include: {
-        patientAssignments: { where: { unassignedAt: null }, select: { patientId: true }, take: 1 },
+        room: { select: { id: true, name: true } },
+        patientAssignments: {
+          where: { unassignedAt: null },
+          select: { patientId: true, patient: { select: { roomId: true } } },
+          take: 1,
+        },
       },
       orderBy: { machineCode: 'asc' },
     });
-    return machines.map((m) => ({
-      id: m.id,
-      machineType: m.machineType as MachineType,
-      machineCode: m.machineCode,
-      location: m.location ?? undefined,
-      status: m.status,
-      lastSeenAt: m.lastSeenAt ? m.lastSeenAt.toISOString() : null,
-      assignedPatientId: m.patientAssignments[0]?.patientId ?? null,
-    }));
+    return machines.map((m) => {
+      const assigned = m.patientAssignments[0];
+      return {
+        id: m.id,
+        machineType: m.machineType as MachineType,
+        machineCode: m.machineCode,
+        location: m.room?.name,
+        room: m.room,
+        status: m.status,
+        lastSeenAt: m.lastSeenAt ? m.lastSeenAt.toISOString() : null,
+        assignedPatientId: assigned?.patientId ?? null,
+        roomMismatch: !!assigned && assigned.patient.roomId !== m.roomId,
+      };
+    });
   }
 
   async fleetStatus(): Promise<FleetStatus> {
@@ -56,8 +66,10 @@ export class MachinesService {
   }
 
   async create(input: CreateMachineInput, actor: AuthenticatedUser): Promise<MachineSummary> {
+    const room = await this.prisma.room.findUnique({ where: { id: input.roomId } });
+    if (!room || !room.active) throw new BadRequestException('Choose an active room');
     const machine = await this.prisma.machine.create({
-      data: { machineCode: input.machineCode, machineType: input.machineType, location: input.location },
+      data: { machineCode: input.machineCode, machineType: input.machineType, roomId: room.id },
     });
 
     await this.audit.log({
@@ -73,11 +85,50 @@ export class MachinesService {
       id: machine.id,
       machineType: machine.machineType as MachineType,
       machineCode: machine.machineCode,
-      location: machine.location ?? undefined,
+      location: room.name,
+      room: { id: room.id, name: room.name },
       status: machine.status,
       lastSeenAt: null,
       assignedPatientId: null,
+      roomMismatch: false,
     };
+  }
+
+  /**
+   * Moves a machine to another room (admin). Refused while it is on a
+   * patient in a different room: move the patient (their machines go with
+   * them) or unassign it first.
+   */
+  async moveToRoom(machineId: string, roomId: string, actor: AuthenticatedUser) {
+    const machine = await this.prisma.machine.findUnique({
+      where: { id: machineId },
+      include: {
+        room: true,
+        patientAssignments: { where: { unassignedAt: null }, include: { patient: { include: { room: true } } }, take: 1 },
+      },
+    });
+    if (!machine) throw new NotFoundException('Machine not found');
+    const room = await this.prisma.room.findUnique({ where: { id: roomId } });
+    if (!room || !room.active) throw new BadRequestException('Choose an active room');
+    if (machine.roomId === room.id) return this.listAll().then((all) => all.find((m) => m.id === machineId));
+    const onPatient = machine.patientAssignments[0]?.patient;
+    if (onPatient && onPatient.roomId !== room.id) {
+      throw new ConflictException(
+        `${machine.machineCode} is on ${onPatient.fullName} in ${onPatient.room?.name ?? 'no room'}. ` +
+          `Move the patient (their machines move with them) or unassign ${machine.machineCode} first.`,
+      );
+    }
+    await this.prisma.machine.update({ where: { id: machineId }, data: { roomId: room.id } });
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'MACHINE_MOVED',
+      entityTable: 'machines',
+      entityId: machineId,
+      before: { room: machine.room?.name ?? null },
+      after: { room: room.name },
+    });
+    return (await this.listAll()).find((m) => m.id === machineId);
   }
 
   /**
@@ -90,8 +141,19 @@ export class MachinesService {
    * immediately since there's no device round-trip.
    */
   async assignPatientToMachine(patientId: string, machineId: string, actor: AuthenticatedUser) {
-    const machine = await this.prisma.machine.findUnique({ where: { id: machineId } });
+    const machine = await this.prisma.machine.findUnique({ where: { id: machineId }, include: { room: true } });
     if (!machine) throw new NotFoundException('Machine not found');
+    // A machine is only ever tagged to a patient in its own room.
+    const target = await this.prisma.patient.findUnique({ where: { id: patientId }, include: { room: true } });
+    if (!target) throw new NotFoundException('Patient not found');
+    if (!machine.roomId) throw new ConflictException(`Set ${machine.machineCode}'s room first`);
+    if (!target.roomId) throw new ConflictException(`Set ${target.fullName}'s room first`);
+    if (machine.roomId !== target.roomId) {
+      throw new ConflictException(
+        `${machine.machineCode} is in ${machine.room?.name}; ${target.fullName} is in ${target.room?.name}. ` +
+          'Move the machine or the patient first.',
+      );
+    }
 
     const activeOnMachine = await this.prisma.patientMachineAssignment.findFirst({
       where: { machineId, unassignedAt: null },

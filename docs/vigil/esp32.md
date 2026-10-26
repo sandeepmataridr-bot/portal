@@ -29,7 +29,7 @@ Heater controller -serial-/
 
    No `VIGIL_HL7_CODES` is needed, because the gateway's codes are built in. On the hosted (production) server in LIVE mode the quick sign-in table on the login screen is off, so staff use their own accounts; a local development API with `TEST_LOGINS=true` still shows it.
 2. **Admin dashboard → Register New Machine:** type **ECMO**, code e.g. `ECMO-001`.
-3. **Issue credential** on that machine. Copy the **Machine ID** and **Token**; the token is shown only once.
+3. **Issue credential** on that machine: **superuser** only, from the Admin tab of the superuser page. Copy the **Machine ID** and **Token**; the token is shown only once.
 4. **Gateway:**
    - Copy `secrets.example.h` to `secrets.h` and fill in the Wi-Fi details, `SERVER_URL`, `MACHINE_CODE`, `MACHINE_ID` and `MACHINE_TOKEN`.
    - `secrets.h` is git-ignored.

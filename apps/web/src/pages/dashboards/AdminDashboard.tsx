@@ -3,11 +3,15 @@ import { Link } from 'react-router-dom';
 import type { DoctorSummary, MachineType } from '@infusion/shared-types';
 import { MACHINE_TYPES, MACHINE_TYPE_LABEL } from '@infusion/shared-types';
 import { AppShell } from '../../components/AppShell';
+import { useAuth } from '../../auth/AuthContext';
 import { StatTile } from '../../components/StatTile';
 import { useFleetStatus, useCreateMachine, useIssueMachineCredential } from '../../features/machines/api';
 import { AssignPatientModal } from '../../features/machines/AssignPatientModal';
 import { MachineMirrorView } from '../../features/machines/MachineMirrorView';
 import { PatientLinksCard } from '../../features/patients/PatientLinksCard';
+import { RoomsCard } from '../../features/rooms/RoomsCard';
+import { useMoveMachine, useRooms } from '../../features/rooms/api';
+import { ApiError } from '../../lib/api';
 import {
   useAllDoctors,
   useCreateDoctor,
@@ -26,7 +30,15 @@ function FleetPanel() {
   const createMachine = useCreateMachine();
   const issueCredential = useIssueMachineCredential();
   const untag = useUntagPatientMachine();
-  const [form, setForm] = useState({ machineCode: '', machineType: 'INFUSION_PUMP' as MachineType, location: '' });
+  const { user } = useAuth();
+  // Machine credentials are issued by the superuser only (their Admin tab).
+  const isSuperuser = user?.role === 'superuser';
+  const { data: rooms } = useRooms();
+  const moveMachine = useMoveMachine();
+  const [form, setForm] = useState({ machineCode: '', machineType: 'INFUSION_PUMP' as MachineType, roomId: '' });
+  const [moving, setMoving] = useState<{ machineId: string; machineCode: string; roomId: string } | null>(null);
+  const [fleetError, setFleetError] = useState('');
+  const [moveError, setMoveError] = useState('');
   const [issued, setIssued] = useState<{ machineId: string; machineCode: string; token: string } | null>(null);
   const [assignModal, setAssignModal] = useState<{ machineId: string; machineCode: string } | null>(null);
   const [mirrorMachine, setMirrorMachine] = useState<{ machineId: string; machineCode: string } | null>(null);
@@ -34,9 +46,25 @@ function FleetPanel() {
   const patientName = (id: string) => allPatients?.find((p) => p.id === id)?.fullName ?? id;
 
   const registerMachine = async () => {
-    if (!form.machineCode) return;
-    await createMachine.mutateAsync(form);
-    setForm({ machineCode: '', machineType: 'INFUSION_PUMP', location: '' });
+    setFleetError('');
+    if (!form.machineCode || !form.roomId) return setFleetError('Enter the machine code and choose its room.');
+    try {
+      await createMachine.mutateAsync(form);
+      setForm({ machineCode: '', machineType: 'INFUSION_PUMP', roomId: '' });
+    } catch (e) {
+      setFleetError(e instanceof ApiError ? e.message : 'Could not register the machine.');
+    }
+  };
+
+  const confirmMove = async () => {
+    if (!moving) return;
+    setMoveError('');
+    try {
+      await moveMachine.mutateAsync({ machineId: moving.machineId, roomId: moving.roomId });
+      setMoving(null);
+    } catch (e) {
+      setMoveError(e instanceof ApiError ? e.message : 'Could not move the machine.');
+    }
   };
 
   const issueFor = async (machineId: string) => {
@@ -60,7 +88,7 @@ function FleetPanel() {
           <tr>
             <th>Code</th>
             <th>Type</th>
-            <th>Location</th>
+            <th>Room</th>
             <th>Status</th>
             <th>Assigned Patient</th>
             <th>Actions</th>
@@ -71,21 +99,58 @@ function FleetPanel() {
             <tr key={m.id}>
               <td>{m.machineCode}</td>
               <td>{MACHINE_TYPE_LABEL[m.machineType as MachineType] ?? m.machineType}</td>
-              <td>{m.location ?? '—'}</td>
+              <td>
+                {moving?.machineId === m.id ? (
+                  <span className="room-move">
+                    <select value={moving.roomId} onChange={(e) => setMoving({ ...moving, roomId: e.target.value })}>
+                      <option value="">-- Room --</option>
+                      {rooms?.filter((r) => r.id !== m.room?.id).map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" className="link-button" disabled={!moving.roomId || moveMachine.isPending} onClick={() => void confirmMove()}>
+                      Move
+                    </button>
+                    <button type="button" className="link-button" onClick={() => setMoving(null)}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <>
+                    {m.room?.name ?? '—'}{' '}
+                    <button type="button" className="link-button" onClick={() => setMoving({ machineId: m.id, machineCode: m.machineCode, roomId: '' })}>
+                      ↔ Move
+                    </button>
+                  </>
+                )}
+              </td>
               <td>
                 <span className={`badge ${m.status === 'online' ? 'badge-yes' : 'badge-no'}`}>{m.status}</span>
               </td>
               <td>
                 {m.assignedPatientId ? (
-                  <Link to={`/patients/${encodeURIComponent(m.assignedPatientId)}/monitor`}>{patientName(m.assignedPatientId)}</Link>
+                  <>
+                    <Link to={`/patients/${encodeURIComponent(m.assignedPatientId)}/monitor`}>{patientName(m.assignedPatientId)}</Link>
+                    {m.roomMismatch && (
+                      <span className="status-badge status-pending room-mismatch" title="The patient is in a different room">
+                        ⚠ room mismatch
+                      </span>
+                    )}
+                  </>
                 ) : (
                   '—'
                 )}
               </td>
               <td>
-                <button type="button" className="link-button" onClick={() => issueFor(m.id)}>
-                  🔑 Issue Credential
-                </button>{' '}
+                {isSuperuser && (
+                  <>
+                    <button type="button" className="link-button" onClick={() => issueFor(m.id)}>
+                      🔑 Issue Credential
+                    </button>{' '}
+                  </>
+                )}
                 {m.machineType === 'INFUSION_PUMP' && (
                   <>
                     <button type="button" className="link-button" onClick={() => setMirrorMachine({ machineId: m.id, machineCode: m.machineCode })}>
@@ -111,9 +176,15 @@ function FleetPanel() {
           ))}
         </tbody>
       </table>
+      {moveError && <p className="form-error">{moveError}</p>}
 
       {assignModal && (
-        <AssignPatientModal machineId={assignModal.machineId} machineCode={assignModal.machineCode} onClose={() => setAssignModal(null)} />
+        <AssignPatientModal
+          machineId={assignModal.machineId}
+          machineCode={assignModal.machineCode}
+          room={fleet?.machines.find((x) => x.id === assignModal.machineId)?.room ?? null}
+          onClose={() => setAssignModal(null)}
+        />
       )}
 
       {mirrorMachine && (
@@ -152,11 +223,19 @@ function FleetPanel() {
           </select>
         </label>
         <label>
-          Location
-          <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+          Room
+          <select value={form.roomId} onChange={(e) => setForm({ ...form, roomId: e.target.value })}>
+            <option value="">-- Select --</option>
+            {rooms?.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
-      <button type="button" className="btn-primary" onClick={registerMachine} disabled={createMachine.isPending}>
+      {fleetError && <p className="form-error">{fleetError}</p>}
+      <button type="button" className="btn-primary" onClick={() => void registerMachine()} disabled={createMachine.isPending}>
         ➕ Register Machine
       </button>
     </div>
@@ -301,6 +380,7 @@ export function AdminDashboard() {
   return (
     <AppShell title="🏥 Admin — Fleet Dashboard">
       <FleetPanel />
+      <RoomsCard />
       <PatientLinksCard />
       <ManageDoctorsPanel />
     </AppShell>

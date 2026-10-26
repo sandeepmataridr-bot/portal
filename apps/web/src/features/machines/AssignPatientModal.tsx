@@ -4,13 +4,19 @@ import { ApiError } from '../../lib/api';
 import { usePatients } from '../patients/api';
 import { useTagPatientMachine } from '../patients/api';
 
+/**
+ * Tags a patient to a machine. Only patients in the machine's room are
+ * offered: a machine is never tagged to a patient in another room.
+ */
 export function AssignPatientModal({
   machineId,
   machineCode,
+  room,
   onClose,
 }: {
   machineId: string;
   machineCode: string;
+  room: { id: string; name: string } | null;
   onClose: () => void;
 }) {
   const [search, setSearch] = useState('');
@@ -28,11 +34,18 @@ export function AssignPatientModal({
     }
   };
 
-  const activePatients = patients?.filter((p) => !p.discharged) ?? [];
+  const admitted = patients?.filter((p) => !p.discharged) ?? [];
+  const activePatients = room ? admitted.filter((p) => p.room?.id === room.id) : [];
+  const elsewhere = admitted.length - activePatients.length;
 
   return (
     <Modal title={`🖥️ Assign Patient to ${machineCode}`} onClose={onClose}>
       <div className="patient-form">
+        <p className="form-hint">
+          {room
+            ? `${machineCode} is in ${room.name}. Only patients in ${room.name} can be tagged to it.`
+            : `${machineCode} has no room yet. Move it to a room first.`}
+        </p>
         <label>
           Search Patient
           <input
@@ -56,7 +69,7 @@ export function AssignPatientModal({
           <tbody>
             {activePatients.length === 0 && (
               <tr>
-                <td colSpan={4}>No active patients found.</td>
+                <td colSpan={4}>{room ? `No admitted patients in ${room.name}.` : "Set the machine's room first."}</td>
               </tr>
             )}
             {activePatients.map((p) => (
@@ -73,6 +86,12 @@ export function AssignPatientModal({
             ))}
           </tbody>
         </table>
+        {elsewhere > 0 && room && (
+          <p className="form-hint">
+            {elsewhere} patient{elsewhere === 1 ? '' : 's'} in other rooms can't be tagged to {machineCode}. Move the patient or the machine
+            first.
+          </p>
+        )}
       </div>
       <div className="modal-footer">
         <button type="button" className="btn-secondary" onClick={onClose}>

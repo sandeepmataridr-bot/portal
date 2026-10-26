@@ -1,18 +1,17 @@
 import { useState } from 'react';
-import { updatePatientIdentitySchema, type UpdatePatientIdentityInput } from '@infusion/shared-types';
+import { updatePatientIdentitySchema } from '@infusion/shared-types';
 import { ApiError } from '../../lib/api';
 import { useUpdatePatientIdentity, type PatientDetail } from './api';
 
 /**
  * Reception's identity correction, opened from the patient's details. IP
- * number and full name are shown but fixed: once registered they never
- * change. Every change is recorded in the history timeline (IDENTITY_UPDATE).
+ * number, full name and gender are shown but fixed: once registered they
+ * never change. Every change is recorded in the history timeline (IDENTITY_UPDATE).
  */
 export function EditIdentityForm({ patient, onDone }: { patient: PatientDetail; onDone: () => void }) {
   const update = useUpdatePatientIdentity();
   const [form, setForm] = useState({
     age: String(patient.age),
-    gender: patient.gender as UpdatePatientIdentityInput['gender'],
     mobile: patient.mobile,
     emergencyContact: patient.emergencyContact,
     aadhar: patient.aadhar,
@@ -49,12 +48,8 @@ export function EditIdentityForm({ patient, onDone }: { patient: PatientDetail; 
           <input type="number" min={0} max={150} value={form.age} onChange={set('age')} />
         </label>
         <label>
-          Gender
-          <select value={form.gender} onChange={set('gender')}>
-            <option>Male</option>
-            <option>Female</option>
-            <option>Other</option>
-          </select>
+          Gender (fixed)
+          <input value={patient.gender} disabled readOnly />
         </label>
         <label>
           Mobile

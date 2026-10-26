@@ -31,10 +31,10 @@ export class SyncController {
     return this.sync.push(req.machine!.id, body);
   }
 
-  @Roles('admin')
-  // Issues the machine's long-lived secret — shown only once. Throttle it
+  // Superuser only: issues the machine's long-lived secret — shown only once. Throttle it
   // like any other credential-issuing endpoint.
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Roles('superuser')
   @Post('machines/:id/credentials')
   issueCredential(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.credentials.issue(id, user);

@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { readmitPatientSchema, type ReadmitPatientInput } from '@infusion/shared-types';
 import { Modal } from '../../components/Modal';
 import { useActiveDoctors } from '../doctors/api';
+import { useRooms } from '../rooms/api';
 import { useInsuranceCompanies } from '../insurance/api';
 import { usePatient, useReadmitPatient } from './api';
 
@@ -11,6 +12,7 @@ const numOrUndef = (v: string) => (v === '' ? undefined : Number(v));
 export function ReadmitModal({ patientId, onClose }: { patientId: string; onClose: () => void }) {
   const { data: patient } = usePatient(patientId);
   const { data: doctors } = useActiveDoctors();
+  const { data: rooms } = useRooms();
   const { data: companies } = useInsuranceCompanies();
   const readmit = useReadmitPatient();
 
@@ -107,6 +109,18 @@ export function ReadmitModal({ patientId, onClose }: { patientId: string; onClos
               ))}
             </select>
             {errors.doctorId && <span className="field-error">{errors.doctorId.message}</span>}
+          </label>
+          <label>
+            Room
+            <select {...register('roomId', { setValueAs: (v: string) => v || undefined })}>
+              <option value="">Keep current room</option>
+              {rooms?.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            {errors.roomId && <span className="field-error">{errors.roomId.message}</span>}
           </label>
         </div>
 

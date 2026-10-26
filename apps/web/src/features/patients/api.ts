@@ -20,6 +20,7 @@ export interface PatientSummary {
   claimStatus: string | null;
   /** IP numbers of duplicate records linked to this one (searching them finds this patient). */
   linkedIpNumbers?: string[];
+  room: { id: string; name: string } | null;
 }
 
 export interface PatientHistoryEntry {
@@ -68,6 +69,7 @@ export interface PatientDetail {
   history: PatientHistoryEntry[];
   insuranceClaims: Array<{ id: string; status: string; remarks: string | null }>;
   machineAssignments: Array<{ id: string; machineId: string; machine: { machineCode: string; machineType: string } }>;
+  room: { id: string; name: string } | null;
   /** Set on a duplicate: the main record it is linked to. */
   linkedTo: LinkedPatientRef | null;
   /** On a main record: its linked duplicates. */

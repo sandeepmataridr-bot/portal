@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -21,6 +21,9 @@ export class MachineCredentialsService {
    * once — only its hash is ever stored, mirroring how refresh tokens work.
    */
   async issue(machineId: string, actor: AuthenticatedUser) {
+    // Superuser only, and explicitly so: the roles guard lets admin through
+    // every route, so @Roles('superuser') alone would not keep admin out.
+    if (actor.role !== 'superuser') throw new ForbiddenException('Machine credentials are issued by the superuser');
     const machine = await this.prisma.machine.findUnique({ where: { id: machineId } });
     if (!machine) throw new NotFoundException('Machine not found');
 

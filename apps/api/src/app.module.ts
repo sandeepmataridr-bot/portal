@@ -10,6 +10,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { DoctorsModule } from './doctors/doctors.module.js';
 import { MachinesModule } from './machines/machines.module.js';
+import { RoomsModule } from './rooms/rooms.module.js';
 import { PatientsModule } from './patients/patients.module.js';
 import { MedicinesModule } from './medicines/medicines.module.js';
 import { InsuranceModule } from './insurance/insurance.module.js';
@@ -34,6 +35,7 @@ import { VigilModule } from './vigil/vigil.module.js';
     AuthModule,
     DoctorsModule,
     MachinesModule,
+    RoomsModule,
     PatientsModule,
     MedicinesModule,
     InsuranceModule,

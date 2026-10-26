@@ -97,11 +97,28 @@ enum MachineStatus {
 // typed order/step/live-status tables and state machine — this Machine model
 // is deliberately type-agnostic, holding only the fleet-level concerns
 // (registration, connectivity, credentials) shared by every machine type.
+// An ICU room or bed, from the list the admin keeps. Machines and patients
+// pick a room from it (never type it), so a machine can only be tagged to a
+// patient in the same room.
+model Room {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  machines  Machine[]
+  patients  Patient[]
+
+  @@map("rooms")
+}
+
 model Machine {
   id          String        @id @default(uuid())
   machineType String
   machineCode String        @unique
+  // Free-text location from before rooms existed; kept, no longer written.
   location    String?
+  roomId      String?
+  room        Room?         @relation(fields: [roomId], references: [id])
   tailscaleIp String?
   status      MachineStatus @default(offline)
   lastSeenAt  DateTime?
@@ -156,7 +173,10 @@ model Patient {
   emergencyContact String?
   aadhar           String?
   address          String?
+  // Free text from bedside-created records; superseded by roomId.
   roomOrBed        String?
+  roomId           String?
+  room             Room?   @relation(fields: [roomId], references: [id])
 
   weightKg     Float?
   heightCm     Float?

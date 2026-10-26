@@ -12,6 +12,7 @@ const BADGE_CLASS: Record<string, string> = {
   IP_LINKED: 'badge-ip-link',
   IP_LINKED_TO: 'badge-ip-link',
   IP_UNLINKED: 'badge-ip-link',
+  ROOM_CHANGED: 'badge-room-changed',
   DOCTOR_SUGGESTION: 'badge-doctor-update',
   DOCTOR_SUGGESTION_DELETED: 'badge-doctor-update',
   INSURANCE_APPROVED: 'badge-insurance-approved',
@@ -57,6 +58,20 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
         {entry.action === 'IP_LINKED_TO' && <p>Linked to main {ip(s.mainIpNumber, s.mainFullName)}</p>}
         {entry.action === 'IP_UNLINKED' && <p>Delinked from {ip(s.otherIpNumber, s.otherFullName)}</p>}
         {s.reason ? <p>Reason: {String(s.reason)}</p> : null}
+        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+      </div>
+    );
+  }
+
+  if (entry.action === 'ROOM_CHANGED') {
+    const moved = Array.isArray(s.machinesMoved) ? (s.machinesMoved as string[]) : [];
+    return (
+      <div className="timeline-entry__body">
+        <p>
+          Room: {String(s.fromRoom ?? 'none')} → <b>{String(s.toRoom ?? '?')}</b>
+        </p>
+        {moved.length ? <p>Machines moved with the patient: {moved.join(', ')}</p> : null}
+        {s.note ? <p>Note: {String(s.note)}</p> : null}
         {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
       </div>
     );

@@ -5,6 +5,7 @@ export * from './patient.schema.js';
 export * from './medicine.schema.js';
 export * from './infusion.schema.js';
 export * from './machine.schema.js';
+export * from './room.schema.js';
 export * from './sync.schema.js';
 export * from './insurance.schema.js';
 export * from './reconciliation.schema.js';

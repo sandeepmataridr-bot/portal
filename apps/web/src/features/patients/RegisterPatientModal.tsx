@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { registerPatientSchema, type RegisterPatientInput } from '@infusion/shared-types';
 import { Modal } from '../../components/Modal';
 import { useActiveDoctors } from '../doctors/api';
+import { useRooms } from '../rooms/api';
 import { useInsuranceCompanies } from '../insurance/api';
 import { useRegisterPatient } from './api';
 
@@ -11,6 +12,7 @@ const numOrUndef = (v: string) => (v === '' ? undefined : Number(v));
 
 export function RegisterPatientModal({ onClose }: { onClose: () => void }) {
   const { data: doctors } = useActiveDoctors();
+  const { data: rooms } = useRooms();
   const { data: companies } = useInsuranceCompanies();
   const registerPatient = useRegisterPatient();
 
@@ -155,6 +157,18 @@ export function RegisterPatientModal({ onClose }: { onClose: () => void }) {
               ))}
             </select>
             {errors.doctorId && <span className="field-error">{errors.doctorId.message}</span>}
+          </label>
+          <label>
+            Room *
+            <select {...register('roomId')}>
+              <option value="">-- Select --</option>
+              {rooms?.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            {errors.roomId && <span className="field-error">{errors.roomId.message}</span>}
           </label>
         </div>
 

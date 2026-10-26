@@ -9,6 +9,7 @@ import type {
   UpdatePatientIdentityInput,
   LinkPatientsInput,
   UnlinkPatientInput,
+  MovePatientInput,
 } from '@infusion/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -25,6 +26,7 @@ const patientInclude = {
   history: { orderBy: { version: 'desc' as const } },
   insuranceClaims: { orderBy: { createdAt: 'desc' as const }, take: 1 },
   machineAssignments: { where: { unassignedAt: null }, include: { machine: true } },
+  room: { select: { id: true, name: true } },
   linkedTo: { select: { id: true, ipNumber: true, fullName: true } },
   linkedPatients: {
     select: { id: true, ipNumber: true, fullName: true, history: { orderBy: { version: 'desc' as const } } },
@@ -55,10 +57,12 @@ export class PatientsService {
   ) {}
 
   async register(input: RegisterPatientInput, actor: AuthenticatedUser) {
+    await this.requireActiveRoom(input.roomId);
     const patientId = await this.prisma.$transaction(async (tx) => {
       const created = await tx.patient.create({
         data: {
           ipNumber: await nextIpNumber(tx),
+          roomId: input.roomId,
           fullName: input.fullName,
           age: input.age,
           gender: input.gender,
@@ -163,6 +167,8 @@ export class PatientsService {
         emergencyContact,
         roomOrBed,
         registeredByMachineId: actor.machineId,
+        // Created at the bedside: the patient is in the machine's room.
+        roomId: (await tx.machine.findUnique({ where: { id: actor.machineId }, select: { roomId: true } }))?.roomId ?? null,
         needsReceptionCompletion: true,
       },
     });
@@ -216,6 +222,7 @@ export class PatientsService {
         doctor: true,
         insuranceClaims: { orderBy: { createdAt: 'desc' }, take: 1 },
         linkedPatients: { select: { ipNumber: true } },
+        room: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -228,6 +235,7 @@ export class PatientsService {
       discharged: p.discharged,
       claimStatus: p.insuranceClaims[0]?.status ?? null,
       linkedIpNumbers: p.linkedPatients.map((l) => l.ipNumber).filter((ip): ip is string => !!ip),
+      room: p.room,
     }));
   }
 
@@ -270,6 +278,10 @@ export class PatientsService {
       const dups = input.duplicatePatientIds.map((d) => {
         const p = byId.get(d);
         if (!p) throw new NotFoundException('Duplicate patient not found');
+        // Duplicates are the same person: their gender must match the main IP's.
+        if (p.gender !== main.gender) {
+          throw new ConflictException(`IP ${p.ipNumber} is ${p.gender} but main IP ${main.ipNumber} is ${main.gender}; they cannot be the same patient`);
+        }
         if (p.linkedToPatientId) throw new ConflictException(`IP ${p.ipNumber} is already linked; delink it first`);
         if (p.linkedPatients.length) throw new ConflictException(`IP ${p.ipNumber} has its own linked IPs; delink those first`);
         if (p.machineAssignments.length) {
@@ -365,6 +377,59 @@ export class PatientsService {
     return this.getById(id);
   }
 
+  /**
+   * Moves a patient to another room (reception, admin). The machines attached
+   * to them go with them, so a machine and its patient are never in
+   * different rooms. ROOM_CHANGED in the history lists the machines moved.
+   */
+  async moveToRoom(id: string, input: MovePatientInput, actor: AuthenticatedUser) {
+    const room = await this.requireActiveRoom(input.roomId);
+    let moved: string[] = [];
+    let fromRoom: string | null = null;
+    await this.prisma.$transaction(async (tx) => {
+      const patient = await tx.patient.findUnique({
+        where: { id },
+        include: { room: true, machineAssignments: { where: { unassignedAt: null }, include: { machine: true } } },
+      });
+      if (!patient) throw new NotFoundException('Patient not found');
+      if (patient.discharged) throw new ConflictException('Patient is discharged; readmit them to choose a room');
+      if (patient.roomId === room.id) throw new ConflictException(`${patient.fullName} is already in ${room.name}`);
+      fromRoom = patient.room?.name ?? null;
+      const machineIds = patient.machineAssignments.map((a) => a.machineId);
+      moved = patient.machineAssignments.map((a) => a.machine.machineCode);
+      if (machineIds.length) await tx.machine.updateMany({ where: { id: { in: machineIds } }, data: { roomId: room.id } });
+
+      const v = patient.version + 1;
+      const updated = await tx.patient.update({ where: { id }, data: { roomId: room.id, version: v } });
+      await tx.patientHistory.create({
+        data: {
+          patientId: id,
+          version: v,
+          action: 'ROOM_CHANGED',
+          snapshot: toSnapshot({ ...updated, fromRoom, toRoom: room.name, machinesMoved: moved, note: input.note ?? null }),
+          actedBy: actor.loginId,
+        },
+      });
+    });
+
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'PATIENT_ROOM_CHANGED',
+      entityTable: 'patients',
+      entityId: id,
+      before: { room: fromRoom },
+      after: { room: room.name, machinesMoved: moved },
+    });
+    return this.getById(id);
+  }
+
+  private async requireActiveRoom(roomId: string) {
+    const room = await this.prisma.room.findUnique({ where: { id: roomId } });
+    if (!room || !room.active) throw new BadRequestException('Choose an active room');
+    return room;
+  }
+
   /** Every main record with its linked duplicates, for the admin page. */
   listLinks() {
     return this.prisma.patient.findMany({
@@ -383,6 +448,7 @@ export class PatientsService {
     const patient = await this.prisma.patient.findUnique({ where: { id } });
     if (!patient) throw new NotFoundException('Patient not found');
     if (!patient.discharged) throw new ConflictException('Patient is not discharged — nothing to readmit');
+    if (input.roomId) await this.requireActiveRoom(input.roomId);
 
     const nextVersion = patient.version + 1;
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -393,6 +459,7 @@ export class PatientsService {
           dischargeDate: null,
           dischargeRemarks: null,
           doctorProfileId: input.doctorId,
+          ...(input.roomId ? { roomId: input.roomId } : {}),
           address: input.address,
           weightKg: input.weightKg,
           heightCm: input.heightCm,
@@ -510,12 +577,12 @@ export class PatientsService {
   }
 
   /**
-   * Corrects identity details (age, gender, mobile, emergency contact,
-   * Aadhar, address). IP number and full name are never changed. The
+   * Corrects identity details (age, mobile, emergency contact, Aadhar,
+   * address). IP number, full name and gender are never changed. The
    * IDENTITY_UPDATE history entry lists each changed field, before and after.
    */
   async updateIdentity(id: string, input: UpdatePatientIdentityInput, actor: AuthenticatedUser) {
-    const fields = ['age', 'gender', 'mobile', 'emergencyContact', 'aadhar', 'address'] as const;
+    const fields = ['age', 'mobile', 'emergencyContact', 'aadhar', 'address'] as const;
     let changes: { field: string; from: unknown; to: unknown }[] = [];
     await this.prisma.$transaction(async (tx) => {
       const patient = await tx.patient.findUnique({ where: { id } });

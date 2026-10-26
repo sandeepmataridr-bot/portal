@@ -57,11 +57,16 @@ async function main() {
     { machineCode: 'PUMP-001', machineType: 'INFUSION_PUMP', location: 'ICU Room 3' },
     { machineCode: 'ECMO-001', machineType: 'ECMO', location: 'ICU Room 1' },
   ];
+  // The admin's room list starts with the rooms these machines stand in.
+  for (const name of ['ICU Room 1', 'ICU Room 2', 'ICU Room 3']) {
+    await prisma.room.upsert({ where: { name }, update: {}, create: { name } });
+  }
   for (const m of SEED_MACHINES) {
+    const room = await prisma.room.findUnique({ where: { name: m.location } });
     await prisma.machine.upsert({
       where: { machineCode: m.machineCode },
       update: {},
-      create: m,
+      create: { ...m, roomId: room?.id },
     });
     console.log(`Seeded machine: ${m.machineCode} (${m.machineType})`);
   }

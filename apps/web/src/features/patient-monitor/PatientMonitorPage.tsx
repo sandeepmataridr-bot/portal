@@ -66,6 +66,7 @@ export function PatientMonitorPage() {
         </button>
         {patient && (
           <span className="pm-meta">
+            {patient.room ? `${patient.room.name} · ` : ''}
             {machines.length} machine{machines.length === 1 ? '' : 's'} attached
             {patient.discharged ? ' · discharged' : ''}
           </span>

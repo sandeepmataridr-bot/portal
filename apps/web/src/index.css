@@ -501,6 +501,14 @@ button {
 .badge-doctor-reassigned { background: #d1c4e9; color: #4527a0; }
 .badge-identity-update { background: #b2ebf2; color: #006064; }
 .badge-ip-link { background: #ffe0b2; color: #bf360c; }
+.badge-room-changed { background: #c5cae9; color: #283593; }
+
+/* ---------- Rooms ---------- */
+.rooms-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.rooms-add input { flex: 1 1 200px; }
+.rooms-card tr.is-inactive { opacity: 0.6; }
+.room-move { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.room-mismatch { margin-left: 6px; white-space: nowrap; }
 .timeline-entry__ip { font-size: 0.75rem; font-weight: 600; color: var(--color-muted); background: #eceff1; border-radius: 8px; padding: 2px 8px; }
 .linked-banner { background: #fff3e0; border: 1px solid #ffcc80; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 0.9rem; }
 .registered-ip { font-size: 1.05rem; }

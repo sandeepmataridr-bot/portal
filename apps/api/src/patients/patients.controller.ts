@@ -9,6 +9,7 @@ import {
   updatePatientIdentitySchema,
   linkPatientsSchema,
   unlinkPatientSchema,
+  movePatientSchema,
   ROLES,
   type RegisterPatientInput,
   type ReadmitPatientInput,
@@ -19,6 +20,7 @@ import {
   type UpdatePatientIdentityInput,
   type LinkPatientsInput,
   type UnlinkPatientInput,
+  type MovePatientInput,
 } from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -112,6 +114,17 @@ export class PatientsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.patients.updateIdentity(id, body, user);
+  }
+
+  // Reception moves a patient to another room; their machines move with them.
+  @Roles('admin', 'reception')
+  @Patch(':id/room')
+  moveRoom(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(movePatientSchema)) body: MovePatientInput,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patients.moveToRoom(id, body, user);
   }
 
   // Reception moves a patient to another attending doctor (wrong doctor at

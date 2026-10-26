@@ -1,5 +1,13 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { createMachineSchema, sendMachineCommandSchema, ROLES, type CreateMachineInput, type SendMachineCommandInput } from '@infusion/shared-types';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  createMachineSchema,
+  moveMachineSchema,
+  sendMachineCommandSchema,
+  ROLES,
+  type CreateMachineInput,
+  type MoveMachineInput,
+  type SendMachineCommandInput,
+} from '@infusion/shared-types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -26,6 +34,18 @@ export class MachinesController {
   @Post()
   create(@Body(new ZodValidationPipe(createMachineSchema)) body: CreateMachineInput, @CurrentUser() user: AuthenticatedUser) {
     return this.machines.create(body, user);
+  }
+
+  // Admin moves a machine to another room (refused while it is on a patient
+  // in a different room).
+  @Roles('admin')
+  @Patch(':id/room')
+  move(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(moveMachineSchema)) body: MoveMachineInput,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.machines.moveToRoom(id, body.roomId, user);
   }
 
   // superuser-only, deliberately not admin — this is the one narrow exception

@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { MACHINE_TYPE_LABEL, type MachineType } from '@infusion/shared-types';
 import { Modal } from '../../components/Modal';
 import { useAuth } from '../../auth/AuthContext';
 import { usePatient } from './api';
 import { ChangeDoctorForm } from './ChangeDoctorForm';
 import { EditIdentityForm } from './EditIdentityForm';
+import { MoveRoomForm } from './MoveRoomForm';
 import { PatientTimeline } from './PatientTimeline';
 
 function yesNo(v: boolean) {
@@ -15,6 +17,7 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
   const { user } = useAuth();
   const [changingDoctor, setChangingDoctor] = useState(false);
   const [editingIdentity, setEditingIdentity] = useState(false);
+  const [movingRoom, setMovingRoom] = useState(false);
   const isFrontDesk = user?.role === 'reception' || user?.role === 'admin';
   const canChangeDoctor = isFrontDesk && patient && !patient.discharged;
 
@@ -126,10 +129,31 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
               </p>
             </div>
             <div>
+              <b>Room</b>
+              <p>
+                {patient.room?.name ?? '—'}
+                {canChangeDoctor && !movingRoom && (
+                  <>
+                    {' '}
+                    <button type="button" className="link-button" onClick={() => setMovingRoom(true)}>
+                      ✏️ Move
+                    </button>
+                  </>
+                )}
+              </p>
+            </div>
+            <div>
               <b>Discharged</b>
               <p>{yesNo(patient.discharged)}</p>
             </div>
           </div>
+
+          {movingRoom && (
+            <div className="info-card">
+              <h4 className="form-section-title">✏️ Move to another room</h4>
+              <MoveRoomForm patient={patient} onDone={() => setMovingRoom(false)} />
+            </div>
+          )}
 
           {changingDoctor && (
             <div className="info-card">
@@ -189,7 +213,7 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
               <div className="detail-grid">
                 {patient.machineAssignments.map((a) => (
                   <div key={a.id}>
-                    <b>{a.machine.machineType}</b>
+                    <b>{MACHINE_TYPE_LABEL[a.machine.machineType as MachineType] ?? a.machine.machineType}</b>
                     <p>{a.machine.machineCode}</p>
                   </div>
                 ))}

@@ -23,6 +23,8 @@ export const patientVitalsSchema = z.object({
   temperatureF: z.number().min(0).max(110).optional(),
   diagnosis: z.string().max(200).optional(),
   doctorId: z.string().uuid('Attending doctor is required'),
+  /** The room the patient is admitted to (from the admin's room list). */
+  roomId: z.string().uuid('Room is required'),
 });
 
 // Plain object shape (no refinements) so it can still be `.partial()`-ed for
@@ -87,6 +89,8 @@ export type TagPatientMachineInput = z.infer<typeof tagPatientMachineSchema>;
 // readmit modal's read-only identity section.
 export const readmitPatientSchema = z.object({
   doctorId: z.string().uuid('Attending doctor is required'),
+  /** Omitted: the patient keeps their room. */
+  roomId: z.string().uuid().optional(),
   address: z.string().max(500).optional(),
   weightKg: z.number().min(0).max(500).optional(),
   heightCm: z.number().min(0).max(300).optional(),
@@ -106,12 +110,12 @@ export const dischargePatientSchema = z.object({
 export type DischargePatientInput = z.infer<typeof dischargePatientSchema>;
 
 /**
- * Reception (or admin) corrects a patient's identity details. IP number and
- * full name are fixed once registered and are never part of this payload.
+ * Reception (or admin) corrects a patient's identity details. IP number, full
+ * name and gender are fixed once registered and are never part of this payload.
  */
-export const PATIENT_FIXED_FIELDS = ['ipNumber', 'fullName'] as const;
-// Any subset of the editable fields; .strict() refuses ipNumber/fullName outright.
-export const updatePatientIdentitySchema = patientIdentitySchema.omit({ ipNumber: true, fullName: true }).partial().strict();
+export const PATIENT_FIXED_FIELDS = ['ipNumber', 'fullName', 'gender'] as const;
+// Any subset of the editable fields; .strict() refuses ipNumber/fullName/gender outright.
+export const updatePatientIdentitySchema = patientIdentitySchema.omit({ ipNumber: true, fullName: true, gender: true }).partial().strict();
 export type UpdatePatientIdentityInput = z.infer<typeof updatePatientIdentitySchema>;
 
 /**

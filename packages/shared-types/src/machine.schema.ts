@@ -74,7 +74,8 @@ export function isBidirectionalMachineType(type: MachineType): boolean {
 export const createMachineSchema = z.object({
   machineCode: z.string().min(1, 'Machine code is required'),
   machineType: z.enum(MACHINE_TYPES),
-  location: z.string().max(200).optional(),
+  /** The room it stands in (from the admin's room list). */
+  roomId: z.string().uuid('Choose a room'),
 });
 export type CreateMachineInput = z.infer<typeof createMachineSchema>;
 
@@ -85,10 +86,14 @@ export const machineSchema = z.object({
   id: z.string().uuid(),
   machineType: z.enum(MACHINE_TYPES),
   machineCode: z.string().min(1),
+  /** The room's name (kept for older screens). */
   location: z.string().optional(),
+  room: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
   status: machineConnectionStatusSchema,
   lastSeenAt: z.string().datetime().nullable(),
   assignedPatientId: z.string().uuid().nullable(),
+  /** The assigned patient is in a different room (an assignment made before rooms were enforced). */
+  roomMismatch: z.boolean(),
 });
 export type MachineSummary = z.infer<typeof machineSchema>;
 
