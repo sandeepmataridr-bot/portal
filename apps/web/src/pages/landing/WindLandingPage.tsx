@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { Leaf as LeafIcon, LogIn } from 'lucide-react';
 import { CROWN_EDGE, CROWN_FRONT, CROWN_RECT, LEAF_CELL, LEAF_KINDS, LEAF_PAD, SCENE_SIZE, SUN, TREE_LEAF_LEN } from './sceneData';
 import './wind-landing.css';
@@ -12,10 +11,14 @@ import './wind-landing.css';
  * front of the crown, some from behind it through the foliage. Each one
  * trembles on its twig, lets go in a gust, flutters or tumbles down on the
  * wind and settles in the grass. The hospital app itself lives behind /login
- * and /app. Styles are scoped under .wind-landing so nothing leaks into the
- * rest of the app.
+ * and /app (at https://app.0dh.in when hosted; this page is then built on its
+ * own for Cloudflare Pages, see vite.landing.config.ts). Styles are scoped
+ * under .wind-landing so nothing leaks into the rest of the app.
  */
 
+/** The staff app's login. A plain link, so it also works from the stand-alone
+    home page build (src/landing-main.tsx), where the app lives at VITE_APP_URL. */
+const SIGN_IN_URL = `${import.meta.env.VITE_APP_URL ?? ''}/login`;
 const BG = '/landing/scene-bg.webp';
 const CROWN = '/landing/scene-crown.webp';
 const LEAVES = '/landing/scene-real-leaves.webp';
@@ -397,52 +400,22 @@ function LivingScene() {
   return <canvas className="scene-canvas" ref={canvasRef} aria-hidden="true" />;
 }
 
-/** Developer-tool shortcuts: F12, and Ctrl/Cmd with Shift or Option plus I, J, C, K, E or M. */
-const DEVTOOLS_KEYS = new Set(['KeyI', 'KeyJ', 'KeyC', 'KeyK', 'KeyE', 'KeyM']);
-/** Ctrl/Cmd + U (view source), S (save), P (print), A (select all), C (copy), X (cut). */
-const PAGE_KEYS = new Set(['KeyU', 'KeyS', 'KeyP', 'KeyA', 'KeyC', 'KeyX']);
-/** Gestures and clipboard actions the screen refuses. (gesturestart is iOS Safari's pinch.) */
-const BLOCKED_EVENTS = ['contextmenu', 'selectstart', 'dragstart', 'copy', 'cut', 'gesturestart'];
-
 /**
- * Locks the screen while the landing page is shown: no right-click menu, no
- * selecting, copying or dragging anything out, and the save, print,
- * view-source and developer-tool shortcuts do nothing. Everything is undone
- * when the page is left, so the staff app behaves normally.
- *
- * These deter casual copying only: anything a browser shows can still be
- * saved by someone determined. The real protections are the security headers
- * in infra/docker/Caddyfile.
+ * The site-wide screen lock (src/lib/screenLock.ts) already blocks selecting,
+ * right-click, copying, dragging and the save/print/devtools shortcuts. This
+ * page is touch-locked too (wind-landing.css); iOS Safari ignores touch-action
+ * for pinch-zoom, so its gesture events are refused while the page is shown.
  */
-function useLockedScreen() {
+function useNoPinchZoom() {
   useEffect(() => {
     const block = (e: Event) => e.preventDefault();
-    const clearSelection = () => {
-      const selection = document.getSelection();
-      if (selection && !selection.isCollapsed) selection.removeAllRanges();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      const devtools = e.code === 'F12' || (mod && (e.shiftKey || e.altKey) && DEVTOOLS_KEYS.has(e.code));
-      const pageAction = mod && !e.shiftKey && !e.altKey && PAGE_KEYS.has(e.code);
-      if (devtools || pageAction) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-    for (const type of BLOCKED_EVENTS) document.addEventListener(type, block);
-    document.addEventListener('selectionchange', clearSelection);
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      for (const type of BLOCKED_EVENTS) document.removeEventListener(type, block);
-      document.removeEventListener('selectionchange', clearSelection);
-      window.removeEventListener('keydown', onKey, true);
-    };
+    document.addEventListener('gesturestart', block);
+    return () => document.removeEventListener('gesturestart', block);
   }, []);
 }
 
 export function WindLandingPage() {
-  useLockedScreen();
+  useNoPinchZoom();
 
   useEffect(() => {
     const previous = document.title;
@@ -476,9 +449,9 @@ export function WindLandingPage() {
             <b>in</b>
           </span>
         </span>
-        <Link className="signin" to="/login" draggable={false}>
-          <LogIn size={16} /> Staff sign in
-        </Link>
+        <a className="signin" href={SIGN_IN_URL} aria-label="Sign in" draggable={false}>
+          <LogIn size={19} aria-hidden="true" />
+        </a>
       </header>
 
       <main className="copy">

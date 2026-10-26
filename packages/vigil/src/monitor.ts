@@ -32,7 +32,28 @@ export const NUMERIC_STEP_S = 5.0;
 export const MAX_POINTS = 360;
 const LOG_MAX = 200;
 const LOG_SENT = 60;
-const SIGNAL_ORDER = ['ECMO_BLOOD_FLOW', 'ECMO_OXY_DELTA_P', 'ECMO_SWEEP_FLOW', 'BG_POST_OXY_PO2'];
+/** Display order: blood flow and pump, pressures, gas, temperatures, heater unit, alarms. */
+const SIGNAL_ORDER = [
+  'ECMO_BLOOD_FLOW',
+  'ECMO_PUMP_SPEED',
+  'ECMO_P_VENOUS',
+  'ECMO_P_PRE_OXY',
+  'ECMO_P_POST_OXY',
+  'ECMO_OXY_DELTA_P',
+  'ECMO_SWEEP_FLOW',
+  'ECMO_FIO2',
+  'BG_POST_OXY_PO2',
+  'ECMO_BLOOD_TEMP',
+  'HU_WATER_TEMP',
+  'HU_SET_TEMP',
+  'HU_WATER_FLOW',
+  'HU_WATER_PRESSURE',
+  'HU_WATER_LEVEL',
+  'HU_GT38_ON',
+  'ECMO_BUBBLE_ALARM',
+  'ECMO_LEVEL_ALARM',
+  'HU_LOW_WATER',
+];
 
 interface SignalTrack {
   hist: VigilPoint[];
@@ -102,7 +123,11 @@ export class MonitorHub {
     if (s.last !== null && s.last.value !== obs.value) s.changedAt = t;
     s.last = { t, value: obs.value, sqi: obs.sqi, flags: [...obs.flags] };
     const lastPoint = s.hist.length > s.head ? s.hist[s.hist.length - 1] : null;
-    if (sig.kind !== SignalKind.NUMERIC || !lastPoint || t - lastPoint[0] >= NUMERIC_STEP_S || obs.sqi < VIGIL_GOOD_SQI) {
+    // Measurements and status flags are kept at NUMERIC_STEP_S resolution (a
+    // flag also on every change); settings and labs on every sample.
+    const sampled = sig.kind === SignalKind.NUMERIC || sig.kind === SignalKind.STATUS;
+    const changed = sig.kind === SignalKind.STATUS && lastPoint !== null && lastPoint[1] !== obs.value;
+    if (!sampled || !lastPoint || changed || t - lastPoint[0] >= NUMERIC_STEP_S || obs.sqi < VIGIL_GOOD_SQI) {
       s.hist.push([t, Math.round(obs.value * 1000) / 1000, Math.round(obs.sqi * 100) / 100]);
     }
     const keep = sig.kind === SignalKind.LAB ? LAB_HISTORY_S : HISTORY_S;

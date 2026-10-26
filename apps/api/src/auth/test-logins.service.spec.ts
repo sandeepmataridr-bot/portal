@@ -2,7 +2,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.validation.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { PasswordService } from './password.service.js';
-import { TEST_ACCOUNTS, TestLoginsService } from './test-logins.service.js';
+import { RETIRED_LOGIN_IDS, TEST_ACCOUNTS, TestLoginsService } from './test-logins.service.js';
 
 /** Records what the service asks the database to do. */
 function fakePrisma() {
@@ -29,7 +29,10 @@ function fakePrisma() {
 }
 
 const passwords = { hash: async (plain: string) => `hash:${plain}` } as unknown as PasswordService;
-const config = (testLogins: boolean) => ({ get: () => testLogins }) as unknown as ConfigService<Env, true>;
+const config = (testLogins: boolean, nodeEnv: Env['NODE_ENV'] = 'production') =>
+  ({ get: (key: keyof Env) => (key === 'NODE_ENV' ? nodeEnv : testLogins) }) as unknown as ConfigService<Env, true>;
+const LIVE = { VIGIL_LIVE_MODE: 'true', VIGIL_LIVE_TENANT_ID: 'general-hospital', VIGIL_LIVE_UNIT_ID: 'cvicu-3' };
+const switchedOff = (loginIds: readonly string[]) => ({ where: { loginId: { in: [...loginIds] }, isActive: true }, data: { isActive: false } });
 
 describe('TestLoginsService', () => {
   const saved = { ...process.env };
@@ -45,7 +48,7 @@ describe('TestLoginsService', () => {
     await service.onApplicationBootstrap();
 
     expect(service.enabled).toBe(true);
-    expect(calls.deactivated).toHaveLength(0);
+    expect(calls.deactivated).toEqual([switchedOff(RETIRED_LOGIN_IDS)]);
     expect(calls.upserted).toHaveLength(TEST_ACCOUNTS.length);
     for (const update of calls.upserted) {
       expect(update).toMatchObject({ isActive: true, mustChangePassword: false, failedLoginCount: 0, lockedUntil: null });
@@ -53,24 +56,33 @@ describe('TestLoginsService', () => {
     expect(calls.doctorProfiles).toBe(1);
   });
 
-  it('switches the accounts off in Vigil LIVE mode, even with TEST_LOGINS on', async () => {
-    Object.assign(process.env, { VIGIL_LIVE_MODE: 'true', VIGIL_LIVE_TENANT_ID: 'general-hospital', VIGIL_LIVE_UNIT_ID: 'cvicu-3' });
+  it('stays on in Vigil LIVE mode on a development build', async () => {
+    Object.assign(process.env, LIVE);
     const { prisma, calls } = fakePrisma();
-    const service = new TestLoginsService(prisma, passwords, config(true));
+    const service = new TestLoginsService(prisma, passwords, config(true, 'development'));
+
+    await service.onApplicationBootstrap();
+
+    expect(service.enabled).toBe(true);
+    expect(calls.upserted).toHaveLength(TEST_ACCOUNTS.length);
+  });
+
+  it('switches the accounts off on a production build in Vigil LIVE mode, even with TEST_LOGINS on', async () => {
+    Object.assign(process.env, LIVE);
+    const { prisma, calls } = fakePrisma();
+    const service = new TestLoginsService(prisma, passwords, config(true, 'production'));
 
     await service.onApplicationBootstrap();
 
     expect(service.enabled).toBe(false);
     expect(calls.upserted).toHaveLength(0);
-    expect(calls.deactivated).toEqual([
-      { where: { loginId: { in: TEST_ACCOUNTS.map((a) => a.loginId) }, isActive: true }, data: { isActive: false } },
-    ]);
+    expect(calls.deactivated).toEqual([switchedOff([...TEST_ACCOUNTS.map((a) => a.loginId), ...RETIRED_LOGIN_IDS])]);
   });
 
   it('switches the accounts off when TEST_LOGINS is off', async () => {
     process.env.VIGIL_LIVE_MODE = 'false';
     const { prisma, calls } = fakePrisma();
-    const service = new TestLoginsService(prisma, passwords, config(false));
+    const service = new TestLoginsService(prisma, passwords, config(false, 'development'));
 
     await service.onApplicationBootstrap();
 
@@ -85,8 +97,9 @@ describe('TestLoginsService', () => {
     expect(new TestLoginsService(prisma, passwords, config(true)).enabled).toBe(false);
   });
 
-  it('lists exactly one account per role', () => {
+  it('lists exactly one account per role, none named "test"', () => {
     expect(new Set(TEST_ACCOUNTS.map((a) => a.role)).size).toBe(TEST_ACCOUNTS.length);
     expect(TEST_ACCOUNTS.map((a) => a.role).sort()).toEqual(['admin', 'doctor', 'insurance', 'pharmacy', 'reception', 'superuser']);
+    for (const account of TEST_ACCOUNTS) expect(`${account.loginId} ${account.password}`).not.toMatch(/test/i);
   });
 });

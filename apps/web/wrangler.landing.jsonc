@@ -1,0 +1,19 @@
+// The public home page on Cloudflare (static assets only, no Worker code):
+//   pnpm --filter @infusion/web build:landing
+//   npx wrangler@4 deploy --config wrangler.landing.jsonc   (from apps/web)
+// Serves dist-landing/ at https://0dh.in. Its _headers and _redirects files
+// set the security headers and send staff paths to the app (vite.landing.config.ts).
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "0dh-in",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist-landing",
+    // Any other path shows the home page instead of an empty 404.
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [{ "pattern": "0dh.in", "custom_domain": true }],
+  // Only https://0dh.in: no extra *.workers.dev or preview addresses.
+  "workers_dev": false,
+  "preview_urls": false
+}

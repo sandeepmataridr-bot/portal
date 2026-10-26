@@ -1,0 +1,15 @@
+[Unit]
+Description=Home-network-only firewall (infra/pi/home-only.nft)
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target docker.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/home-only.nft
+ExecStop=/usr/sbin/nft delete table inet home_only
+
+[Install]
+WantedBy=multi-user.target

@@ -21,6 +21,7 @@ placeholders that have not been clinically signed off.
 | [adr/ADR-004](adr/ADR-004-python-reference-prototype.md) | The Python prototype is the executable specification |
 | [adr/ADR-005](adr/ADR-005-test-live-mode-switch.md) | The single TEST / LIVE mode switch |
 | [adr/ADR-006](adr/ADR-006-integration-into-infusion-platform.md) | How Vigil is integrated here, and why |
+| [esp32.md](esp32.md) | The ESP32 gateway: ECMO and heater-unit controllers into the portal |
 | [proto/vigil/v1](proto/vigil/v1/) | Contracts: envelope, observation, association, alert, therapy, audit |
 | [reference/vigil-python](../../reference/vigil-python/) | The Python reference prototype (read-only spec) |
 
@@ -99,10 +100,12 @@ plain-DOM fallback lists the active alarms and keeps updating them.
 
 ## Connecting a real ECMO machine (LIVE)
 
+Our own ESP32 gateway (ECMO + heater-unit controllers): see **[esp32.md](esp32.md)**. Its codes are built in, so it needs no `VIGIL_HL7_CODES`.
+
 1. Configure the API and restart it:
    - `VIGIL_LIVE_MODE=true`
    - `VIGIL_LIVE_TENANT_ID` and `VIGIL_LIVE_UNIT_ID`
-   - `VIGIL_HL7_CODES`: map the console's OBX-3 codes to Vigil signals, e.g.
+   - `VIGIL_HL7_CODES` (third-party consoles only): map the console's OBX-3 codes to Vigil signals, e.g.
      `{"MDC:QB":"ECMO_BLOOD_FLOW","MDC:DPOXY":"ECMO_OXY_DELTA_P","MDC:SWEEP":"ECMO_SWEEP_FLOW"}`
 2. Admin, in the Fleet panel:
    - Register the machine with type **ECMO**.
@@ -114,12 +117,16 @@ plain-DOM fallback lists the active alarms and keeps updating them.
    Rules start running.
 5. When the machine is unassigned, its rules stop and its alarms resolve, with the reason recorded.
 
-Signals the rules know today ([packages/vigil/src/codes.ts](../../packages/vigil/src/codes.ts)):
+Signals Vigil knows ([packages/vigil/src/codes.ts](../../packages/vigil/src/codes.ts); the full table is in [esp32.md](esp32.md#signals)):
 
 - `ECMO_BLOOD_FLOW` (L/min)
 - `ECMO_OXY_DELTA_P` (mmHg; kPa is converted)
 - `ECMO_SWEEP_FLOW` (L/min, setting)
 - `BG_POST_OXY_PO2` (mmHg, lab)
+- **ECMO console:** pump speed, venous / pre- / post-oxygenator pressures, FiO2, blood temperature, bubble and level alarms.
+- **Heater unit:** water temperature, set temperature, level, flow, pressure, above-38 °C mode, low-water alarm.
+
+Alarm and state flags (`{flag}`, 0/1) are of kind *status*: range-checked, never flagged as a flatline, and shown as OK / ALARM.
 
 Unmapped codes are kept and flagged, never dropped. They never reach the rules.
 

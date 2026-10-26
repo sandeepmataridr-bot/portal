@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import helmet from 'helmet';
@@ -9,8 +10,12 @@ import { AppModule } from './app.module.js';
 import type { Env } from './config/env.validation.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService<Env, true>);
+
+  // Behind the production proxy, take the visitor's IP from X-Forwarded-For
+  // (see TRUST_PROXY_HOPS in config/env.validation.ts).
+  app.set('trust proxy', config.get('TRUST_PROXY_HOPS', { infer: true }));
 
   app.useWebSocketAdapter(new IoAdapter(app));
   app.use(helmet());

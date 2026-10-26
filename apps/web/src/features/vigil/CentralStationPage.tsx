@@ -11,7 +11,7 @@ import {
 import { useAuth } from '../../auth/AuthContext';
 import { apiFetch } from '../../lib/api';
 import { hideFallback, showFallback } from './fallback';
-import { MARK, PATIENT, fmtAgo, fmtDur, fmtTime, fmtVal, fmtWindow } from './format';
+import { MARK, PATIENT, fmtAgo, fmtDur, fmtFlag, fmtTime, fmtUnit, fmtVal, fmtWindow } from './format';
 import { LineChart, type AlertBand } from './LineChart';
 import { effectiveLevel, getSnapshot, poll, setWindow, start, subscribe, type Connection } from './store';
 import './central-station.css';
@@ -567,6 +567,8 @@ function MachineCard({ m, state }: { m: VigilMachineState; state: Ready }) {
             <NumericSignal key={sig.code} sig={sig} stale={m.status === 'no_data'} bands={bands} state={state} />
           ) : sig.kind === 'lab' ? (
             <LabSignal key={sig.code} sig={sig} state={state} />
+          ) : sig.kind === 'status' ? (
+            <StatusSignal key={sig.code} sig={sig} stale={m.status === 'no_data'} state={state} />
           ) : (
             <SettingSignal key={sig.code} sig={sig} state={state} />
           ),
@@ -598,7 +600,7 @@ function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; st
       <div className="sig-body">
         <div className="sig-value">
           <span className="val">{fmtVal(sig.value)}</span>
-          <span className="unit">{sig.unit}</span>
+          <span className="unit">{fmtUnit(sig.unit)}</span>
           <span className="sig-age">updated {fmtAgo(sig.age)}</span>
         </div>
         <LineChart sig={sig} now={state.now} win={state.window} bands={bands} simulated={state.simulatedClock} />
@@ -627,7 +629,7 @@ function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; st
           <thead>
             <tr>
               <th>Time</th>
-              <th className="num">{sig.unit}</th>
+              <th className="num">{fmtUnit(sig.unit)}</th>
               <th className="num">Quality</th>
             </tr>
           </thead>
@@ -649,6 +651,24 @@ function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; st
   );
 }
 
+/** A device-reported state or alarm flag: OK / ALARM, and how long it has been so. */
+function StatusSignal({ sig, stale, state }: { sig: VigilSignalState; stale: boolean; state: Ready }) {
+  const active = sig.value >= 0.5;
+  return (
+    <div className={`sig${stale ? ' is-old' : ''}`}>
+      <div className="sig-head">
+        <span className="sig-label">{sig.label}</span>
+      </div>
+      <div className="sig-compact">
+        <span className={`flag ${active ? 'is-alarm' : 'is-ok'}`}>{fmtFlag(sig.value, sig.kind)}</span>
+        <span className="note">
+          {active ? 'active' : 'normal'} for {fmtDur(state.now - sig.changedAt)} · updated {fmtAgo(sig.age)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function SettingSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) {
   return (
     <div className="sig">
@@ -656,8 +676,8 @@ function SettingSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) 
         <span className="sig-label">{sig.label}</span>
       </div>
       <div className="sig-compact">
-        <span className="val">{fmtVal(sig.value)}</span>
-        <span className="unit">{sig.unit}</span>
+        <span className="val">{sig.unit === 'flag' ? fmtFlag(sig.value, sig.kind) : fmtVal(sig.value)}</span>
+        <span className="unit">{fmtUnit(sig.unit)}</span>
         <span className="note">
           setting, unchanged for {fmtDur(state.now - sig.changedAt)} · updated {fmtAgo(sig.age)}
         </span>
@@ -675,7 +695,7 @@ function LabSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) {
       </div>
       <div className="sig-compact">
         <span className="val">{fmtVal(sig.value)}</span>
-        <span className="unit">{sig.unit}</span>
+        <span className="unit">{fmtUnit(sig.unit)}</span>
         <span className="note">
           resulted {fmtTime(sig.t, state.simulatedClock)} ({fmtAgo(sig.age)})
         </span>
@@ -685,7 +705,7 @@ function LabSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) {
           <thead>
             <tr>
               <th>Earlier results</th>
-              <th className="num">{sig.unit}</th>
+              <th className="num">{fmtUnit(sig.unit)}</th>
             </tr>
           </thead>
           <tbody>

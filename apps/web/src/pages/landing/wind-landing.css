@@ -48,8 +48,8 @@
   background: #f2d7a0; /* the sunrise, while the painting loads */
   /* Locked, like an app screen: nothing can be selected or long-pressed, and
      touch can't pan, zoom or pull-to-refresh it. Taps on the link still work.
-     (WindLandingPage.tsx also blocks the right-click menu, copying, dragging
-     and save/print/view-source shortcuts while this screen is shown.) */
+     (src/lib/screenLock.ts blocks the right-click menu, copying, dragging
+     and the save/print/view-source shortcuts on every page of the site.) */
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -91,7 +91,8 @@
   .live-dot { position: relative; display: inline-block; width: .3em; height: .3em; margin: 0 .08em 0 .1em; border-radius: 50%; background: var(--live); box-shadow: 0 0 .25em rgba(47,163,91,.9), 0 0 .6em rgba(47,163,91,.45); vertical-align: baseline; }
   .live-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--live); animation: wind-pulse 1.9s ease-out infinite; }
   .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-  .signin { font-size: 14px; font-weight: 500; text-decoration: none; transition: background .2s, color .2s, border-color .2s; }
+  /* Sign-in is an icon only: a round button the height of the brand pill. */
+  .signin { justify-content: center; width: 42px; padding: 0; text-decoration: none; transition: background .2s, color .2s, border-color .2s; }
   .signin:hover { background: var(--green); border-color: var(--green); color: #fff; }
 
   /* ---------- heading: on the sunrise glow, just above the sun ---------- */
@@ -107,7 +108,7 @@
   }
   @media (max-width: 760px) {
     .brand { font-size: 19px; min-height: 38px; padding: 0 13px; }
-    .signin { min-height: 38px; padding: 0 13px; font-size: 13px; }
+    .signin { min-height: 38px; width: 38px; }
   }
 
   @media (prefers-reduced-motion: reduce) {

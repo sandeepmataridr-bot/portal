@@ -29,7 +29,7 @@ export class AuthController {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  /** The test accounts for the login screen; 404 unless TEST_LOGINS is on in Vigil TEST mode. */
+  /** The quick sign-in accounts for the login screen; 404 unless TestLoginsService is enabled. */
   @Public()
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get('test-logins')

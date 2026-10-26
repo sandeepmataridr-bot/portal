@@ -1,0 +1,8 @@
+/* Page shell for the stand-alone home page (src/landing-main.tsx), which
+   doesn't load the app's index.css. The sunrise colour shows while the
+   painting loads. */
+html,
+body {
+  margin: 0;
+  background: #f2d7a0;
+}

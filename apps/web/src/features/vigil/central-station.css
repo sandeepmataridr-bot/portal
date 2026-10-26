@@ -309,6 +309,10 @@
   .sig-compact .val { font-size: 22px; }
   .sig-compact .unit { margin: 0; }
   .sig-compact .note { font-size: 12px; color: var(--ink-2); }
+  /* Device-reported state / alarm flag: OK, or a red ALARM block. */
+  .flag { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; padding: 2px 10px; border-radius: 6px; }
+  .flag.is-ok { color: var(--good-text); background: transparent; border: 1px solid var(--border); }
+  .flag.is-alarm { color: var(--critical-ink); background: var(--critical); }
 
   .chart { position: relative; min-width: 0; }
   .chart svg { display: block; width: 100%; height: 92px; touch-action: pan-y; }
@@ -350,7 +354,7 @@
   }
   @media (forced-colors: active) {
     .chart .line { stroke: CanvasText; }
-    .status, .chip, .pri, .mode-badge { border: 1px solid CanvasText; }
+    .status, .chip, .pri, .mode-badge, .flag { border: 1px solid CanvasText; }
   }
 
   .user-box { display: flex; align-items: center; gap: 10px; font-size: 13px; }

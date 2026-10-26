@@ -8,6 +8,17 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 let socket: Socket | null = null;
 
 /**
+ * socket.io reads a URL's path as the namespace, so an API mounted under a
+ * path (production: `/api`, which Caddy strips before the api) must go in
+ * `path` instead: `/api` + `/realtime` connects namespace `/realtime` via
+ * `/api/socket.io`. Locally (`http://localhost:3000`) this is plain `/socket.io`.
+ */
+export function realtimeTarget(apiUrl: string, origin: string): { uri: string; path: string } {
+  const url = new URL(apiUrl, origin);
+  return { uri: `${url.origin}/realtime`, path: `${url.pathname.replace(/\/+$/, '')}/socket.io` };
+}
+
+/**
  * Dashboard-side WS client for the plan's "Real-time live-status push"
  * (§5) — a latency optimization layered on top of the 5s poll `useLiveStatus`
  * already does, never the only path. Connects once for the whole app (called
@@ -19,7 +30,9 @@ let socket: Socket | null = null;
 export function connectRealtime() {
   if (socket) return socket;
 
-  socket = io(`${API_URL}/realtime`, {
+  const { uri, path } = realtimeTarget(API_URL, window.location.origin);
+  socket = io(uri, {
+    path,
     query: { dashboard: 'true' },
     withCredentials: true,
     transports: ['websocket', 'polling'],

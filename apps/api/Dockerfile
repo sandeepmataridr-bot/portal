@@ -35,9 +35,10 @@ ENV NODE_ENV=production
 COPY --from=build --chown=infusion:infusion /deploy/api ./
 USER infusion
 EXPOSE 3000
-# Migrations are NOT run automatically on boot — run
-# `docker compose run --rm migrate` explicitly before starting/updating
-# `api`, so a bad migration never blocks container startup silently and
-# multiple replicas never race on `migrate deploy`.
+# Migrations are NOT run on boot: the compose files' one-shot `migrate`
+# service (this Dockerfile's `build` stage) applies them once per deploy and
+# the api only starts if it succeeds, so a bad migration fails the deploy
+# visibly instead of crash-looping this container, and replicas never race
+# on `migrate deploy`.
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "dist/main.js"]

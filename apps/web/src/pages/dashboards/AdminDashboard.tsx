@@ -25,7 +25,7 @@ function FleetPanel() {
   const issueCredential = useIssueMachineCredential();
   const untag = useUntagPatientMachine();
   const [form, setForm] = useState({ machineCode: '', machineType: 'INFUSION_PUMP' as MachineType, location: '' });
-  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [issued, setIssued] = useState<{ machineId: string; machineCode: string; token: string } | null>(null);
   const [assignModal, setAssignModal] = useState<{ machineId: string; machineCode: string } | null>(null);
   const [mirrorMachine, setMirrorMachine] = useState<{ machineId: string; machineCode: string } | null>(null);
 
@@ -38,8 +38,7 @@ function FleetPanel() {
   };
 
   const issueFor = async (machineId: string) => {
-    const result = await issueCredential.mutateAsync(machineId);
-    setIssuedToken(`${result.machineCode}: ${result.token}`);
+    setIssued(await issueCredential.mutateAsync(machineId));
   };
 
   const unassign = (machineId: string, patientId: string) => {
@@ -113,10 +112,19 @@ function FleetPanel() {
         <MachineMirrorView machineId={mirrorMachine.machineId} machineCode={mirrorMachine.machineCode} onClose={() => setMirrorMachine(null)} />
       )}
 
-      {issuedToken && (
-        <p className="form-hint">
-          ⚠️ Copy this now — shown only once: <code>{issuedToken}</code>
-        </p>
+      {issued && (
+        <div className="form-hint">
+          <p>
+            ⚠️ Credential for <strong>{issued.machineCode}</strong>. Copy it now; the token is shown only once. A device
+            (e.g. the ESP32 gateway's <code>secrets.h</code>) needs both:
+          </p>
+          <p>
+            Machine ID: <code data-allow-copy>{issued.machineId}</code> <CopyButton text={issued.machineId} />
+          </p>
+          <p>
+            Token: <code data-allow-copy>{issued.token}</code> <CopyButton text={issued.token} />
+          </p>
+        </div>
       )}
 
       <h4 className="form-section-title">➕ Register New Machine</h4>
@@ -287,5 +295,24 @@ export function AdminDashboard() {
       <FleetPanel />
       <ManageDoctorsPanel />
     </AppShell>
+  );
+}
+
+/** Copies a value shown once (e.g. a machine credential); the rest of the site can't be copied. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <button type="button" className="link-button" onClick={() => void copy()}>
+      {copied ? '✓ Copied' : '📋 Copy'}
+    </button>
   );
 }

@@ -1,0 +1,122 @@
+name: Build and deploy the staff app
+
+# On every push to main: build the api, migrate and web images for arm64 on
+# GitHub's ARM runners (free for public repositories), push them to GHCR, then
+# ask Coolify on the Raspberry Pi to redeploy infra/docker/docker-compose.pi.yml
+# (docs/deployment.md). The Pi only pulls and runs images; it never builds.
+# The public home page (https://0dh.in) is deployed separately with wrangler.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'firmware/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# One deploy at a time; a newer push waits for the running one.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/portal
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        include:
+          - name: api
+            dockerfile: apps/api/Dockerfile
+            target: runtime
+          # The api build stage: Prisma CLI and tsx for migrations and the seed.
+          - name: migrate
+            dockerfile: apps/api/Dockerfile
+            target: build
+          - name: web
+            dockerfile: apps/web/Dockerfile
+            target: runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            VITE_API_URL=/api
+            VITE_LANDING_URL=https://0dh.in
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}:latest
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  # Triggers the deploy on the Pi and waits for its outcome, so a green run
+  # means the new version is live (a failed migration or start turns it red;
+  # the previous version then keeps running). COOLIFY_DEPLOY_URL is the app's
+  # deploy webhook on the public deploy host, e.g.
+  # https://deploy.0dh.in/api/v1/deploy?uuid=<app uuid> (docs/deployment.md).
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://app.0dh.in
+    steps:
+      - name: Deploy on the Raspberry Pi
+        env:
+          COOLIFY_DEPLOY_URL: ${{ secrets.COOLIFY_DEPLOY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          if [ -z "$COOLIFY_DEPLOY_URL" ] || [ -z "$COOLIFY_TOKEN" ]; then
+            echo "::notice::COOLIFY_DEPLOY_URL and COOLIFY_TOKEN are not set yet: images pushed, nothing deployed."
+            echo "Images built and pushed; the Pi deploy is not set up yet." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          auth="Authorization: Bearer $COOLIFY_TOKEN"
+          base="${COOLIFY_DEPLOY_URL%%/api/v1/*}"
+          started=$(curl --fail-with-body -sS -X POST -H "$auth" "$COOLIFY_DEPLOY_URL")
+          id=$(echo "$started" | jq -r '.deployments[0].deployment_uuid // empty')
+          if [ -z "$id" ]; then
+            echo "::error::Coolify did not start a deployment: $started"
+            exit 1
+          fi
+          echo "Coolify deployment $id started"
+          # Pulling images and restarting takes a few minutes on a Pi 4.
+          status=""
+          for _ in $(seq 1 120); do
+            sleep 10
+            status=$(curl -sS -H "$auth" "$base/api/v1/deployments/$id" | jq -r '.status // empty')
+            echo "status: ${status:-unknown}"
+            case "$status" in
+              finished)
+                echo "### ✅ Live at https://app.0dh.in" >> "$GITHUB_STEP_SUMMARY"
+                echo "Commit \`${GITHUB_SHA::7}\` deployed on the Raspberry Pi." >> "$GITHUB_STEP_SUMMARY"
+                exit 0 ;;
+              failed|cancelled*)
+                echo "### ❌ Deploy $status" >> "$GITHUB_STEP_SUMMARY"
+                echo "The previous version is still running. See the deployment log in Coolify." >> "$GITHUB_STEP_SUMMARY"
+                echo "::error::Coolify deployment $id $status"
+                exit 1 ;;
+            esac
+          done
+          echo "::error::Coolify deployment $id still '$status' after 20 minutes"
+          exit 1

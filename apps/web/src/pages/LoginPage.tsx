@@ -24,7 +24,6 @@ const PAGE_LABEL: Record<string, string> = {
   '/pharmacy': 'Pharmacy dashboard',
   '/insurance': 'Insurance dashboard',
   '/super': 'Super user dashboard',
-  '/central-station': 'ECMO central station',
 };
 
 interface TestRow extends TestLogin {
@@ -32,7 +31,7 @@ interface TestRow extends TestLogin {
   page: string;
 }
 
-/** The test accounts, if the API offers them (TEST mode with TEST_LOGINS on); otherwise none. */
+/** The quick sign-in accounts, if the API offers them (TEST_LOGINS on; see test-logins.service.ts); otherwise none. */
 async function fetchTestLogins(): Promise<TestLogin[]> {
   try {
     return (await apiFetch<TestLoginsResponse>('/auth/test-logins')).accounts;
@@ -42,12 +41,9 @@ async function fetchTestLogins(): Promise<TestLogin[]> {
   }
 }
 
-/** One row per role opening its dashboard, plus the doctor opening the ECMO central station. */
+/** One row per role, opening that role's own dashboard. */
 function testRows(accounts: TestLogin[]): TestRow[] {
-  return accounts.flatMap((account) => {
-    const row = { ...account, key: account.role, page: ROLE_HOME[account.role] };
-    return account.role === 'doctor' ? [row, { ...account, key: 'doctor-ecmo', page: '/central-station' }] : [row];
-  });
+  return accounts.map((account) => ({ ...account, key: account.role, page: ROLE_HOME[account.role] }));
 }
 
 export function LoginPage() {
@@ -81,7 +77,7 @@ export function LoginPage() {
     setServerError(null);
     try {
       const user = await login(data);
-      // A picked test login opens its own page; anything else lands on the role's dashboard.
+      // A picked quick sign-in opens its own page; anything else lands on the role's dashboard.
       const target = picked && picked.loginId === data.loginId ? picked.page : '/app';
       navigate(user.mustChangePassword ? '/change-password' : target, { replace: true });
     } catch (err) {
@@ -95,9 +91,12 @@ export function LoginPage() {
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <div className="login-brand">
             <h1>
-              0dh<span>.in</span>
+              0dh
+              {/* The domain's dot is the live light, as on the home page; a real "." stays for screen readers and copy-paste. */}
+              <span className="login-brand__sr">.</span>
+              <span className="login-brand__live" aria-hidden="true" />
+              <span className="login-brand__in">in</span>
             </h1>
-            <p>ICU patient monitoring</p>
           </div>
           <label>
             Username
@@ -120,10 +119,8 @@ export function LoginPage() {
 
         {rows.length > 0 && (
           <section className="test-logins" aria-labelledby="test-logins-title">
-            <h2 id="test-logins-title">
-              Test mode logins <span className="test-logins__badge">TEST</span>
-            </h2>
-            <p>Simulated patients only. Pick a role to fill in its login, then press Login to open its page.</p>
+            <h2 id="test-logins-title">Quick sign-in</h2>
+            <p>Pick a role to fill in its login, then press Login to open its page.</p>
             <div className="test-logins__scroll">
               <table className="data-table">
                 <thead>

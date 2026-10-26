@@ -1,4 +1,21 @@
-# Security headers on every response: the landing page, the SPA and /api.
+# The staff app at https://app.0dh.in: static SPA + /api reverse proxy.
+#
+# Visitors reach it as: Cloudflare (TLS) -> Cloudflare Tunnel -> Coolify's
+# proxy (Traefik, routes app.0dh.in here) -> this Caddy on plain HTTP :80
+# -> api. So Caddy serves no certificates itself. The public home page
+# (https://0dh.in) is a separate static site on Cloudflare
+# (apps/web/vite.landing.config.ts).
+{
+	servers {
+		# Only proxies on private networks (Traefik, cloudflared) can reach
+		# this container; trust the visitor IP they pass on, preferring the
+		# one Cloudflare itself sets.
+		trusted_proxies static private_ranges
+		client_ip_headers Cf-Connecting-Ip X-Forwarded-For
+	}
+}
+
+# Security headers on every response: the SPA and /api.
 #
 # The Content Security Policy only lets pages load this site's own scripts,
 # styles, fonts and images, and talk only to this site's API and socket — so
@@ -19,19 +36,16 @@
 		Cross-Origin-Resource-Policy "same-origin"
 		X-Permitted-Cross-Domain-Policies "none"
 		Origin-Agent-Cluster "?1"
+		# The staff app has no business in search engines.
+		X-Robots-Tag "noindex, nofollow"
 		-Server
 		-X-Powered-By
 	}
 }
 
-{$DOMAIN} {
+:80 {
 	encode gzip zstd
 	import security_headers
-
-	# Only the landing page (/) belongs in search engines; keep the staff
-	# app's pages and files out of them.
-	@notLanding not path /
-	header @notLanding X-Robots-Tag "noindex, nofollow"
 
 	# Strip /api before forwarding — the NestJS app has no global prefix,
 	# so `/api/auth/login` on the wire becomes `/auth/login` to the api
@@ -43,7 +57,11 @@
 			Cache-Control "no-store"
 			defer
 		}
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			# Exactly one address: the visitor's (see `servers` above). The
+			# api trusts one proxy hop (TRUST_PROXY_HOPS=1) to read it.
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	handle {

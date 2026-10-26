@@ -1,36 +1,37 @@
 name: infusion-platform
 
-# Production stack: postgres + redis + api + web(Caddy: static SPA + TLS +
-# reverse proxy to api). One public origin (DOMAIN) — the web container is
-# the only thing exposed to the internet; api is reachable only on the
-# internal compose network. This keeps the refresh-token cookie same-origin
-# (it is SameSite=Strict, so a split-subdomain deploy would silently break
-# it — see apps/api/src/config/env.validation.ts).
+# The staff app (https://app.0dh.in), built from source: postgres + redis +
+# migrate (one-shot) + api + web (Caddy: static SPA + /api reverse proxy on
+# plain HTTP :80). Nothing is published to the host: in production a proxy
+# in front routes app.0dh.in to `web`. The Raspberry Pi deployment runs the
+# same stack from prebuilt images instead (docker-compose.pi.yml, deployed by
+# Coolify behind a Cloudflare Tunnel; docs/deployment.md). Use this file for
+# a local production-like run, adding an override that publishes web's port.
+# The public home page (https://0dh.in) is a separate static site on
+# Cloudflare. The SPA and its API share one origin, so the SameSite=Strict
+# refresh cookie works (see apps/api/src/config/env.validation.ts).
 #
 # Usage:
 #   cp infra/docker/.env.prod.example infra/docker/.env.prod   # fill in real secrets
-#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod build
-#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod run --rm migrate
-#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod up -d
+#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod up -d --build
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-infusion}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-infusion_platform}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
     # Not published to the host — only api/migrate on the compose network
-    # reach it. Uncomment to allow an external DB client on the VPS itself:
-    # ports: ["127.0.0.1:5432:5432"]
+    # reach it.
 
   redis:
     image: redis:7-alpine
@@ -43,23 +44,26 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-off migration runner — never auto-run on api boot (see api Dockerfile
-  # comment). Run explicitly before `up -d` on first deploy and before every
-  # update that ships a new migration:
-  #   docker compose -f infra/docker/docker-compose.prod.yml run --rm migrate
+  # Runs on every deploy, once, before the api starts: applies pending
+  # migrations, then exits. A failed migration stops the deploy here (the api
+  # waits for this to succeed) instead of starting an api against the wrong
+  # schema. RUN_SEED=true also creates the initial accounts and reference
+  # data; it only adds what is missing, but turn it back off after the
+  # first deploy.
   migrate:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
       target: build
     working_dir: /workspace/apps/api
-    command: ["pnpm", "exec", "prisma", "migrate", "deploy"]
+    command: ["sh", "-c", "pnpm exec prisma migrate deploy && if [ \"$$RUN_SEED\" = true ]; then pnpm run db:seed; fi"]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-infusion}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-infusion_platform}
+      RUN_SEED: ${RUN_SEED:-false}
     depends_on:
       postgres:
         condition: service_healthy
-    profiles: ["tools"]
+    restart: "no"
 
   api:
     build:
@@ -69,35 +73,40 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-infusion}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-infusion_platform}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
       # Public path is /api/auth/* — the web container's Caddyfile strips
       # /api before forwarding, so the cookie Path must match what the
       # browser actually sees, not this app's internal route.
       REFRESH_COOKIE_PATH: /api/auth
-      CORS_ORIGINS: https://${DOMAIN}
-      # Vigil ECMO monitoring (docs/vigil/). TEST (simulated patients) unless
-      # explicitly switched. LIVE puts real patient data behind this domain:
-      # only on infrastructure covered by a BAA/DPA, never a free tier.
-      VIGIL_LIVE_MODE: ${VIGIL_LIVE_MODE:-false}
+      CORS_ORIGINS: https://${DOMAIN:?Set DOMAIN, e.g. app.0dh.in}
+      # Caddy hands on the visitor's IP; trust exactly that one hop.
+      TRUST_PROXY_HOPS: 1
+      # Vigil ECMO monitoring (docs/vigil/). LIVE: machine data from
+      # /api/vigil/ingest is handled as real information. While this runs on
+      # hosting not covered for patient data (a home Pi, free tiers), send
+      # only dummy readings and register only made-up patients.
+      VIGIL_LIVE_MODE: ${VIGIL_LIVE_MODE:-true}
+      VIGIL_LIVE_TENANT_ID: ${VIGIL_LIVE_TENANT_ID:-0dh-hospital}
+      VIGIL_LIVE_UNIT_ID: ${VIGIL_LIVE_UNIT_ID:-icu-1}
       VIGIL_TEST_SCENARIO: ${VIGIL_TEST_SCENARIO:-ecmo/oxy_clot_01}
       VIGIL_TEST_SPEED: ${VIGIL_TEST_SPEED:-60}
-      VIGIL_LIVE_TENANT_ID: ${VIGIL_LIVE_TENANT_ID:-}
-      VIGIL_LIVE_UNIT_ID: ${VIGIL_LIVE_UNIT_ID:-}
       VIGIL_HL7_CODES: ${VIGIL_HL7_CODES:-}
-      # Test accounts with published passwords on the login screen. Off unless
-      # set; honoured only in Vigil TEST mode (see .env.prod.example).
+      # Ready-made accounts with published passwords on the login screen.
+      # A production build ignores this in Vigil LIVE mode.
       TEST_LOGINS: ${TEST_LOGINS:-false}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 10s
@@ -111,20 +120,14 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_API_URL: /api
+        VITE_LANDING_URL: ${LANDING_URL:-https://0dh.in}
     restart: unless-stopped
     environment:
-      DOMAIN: ${DOMAIN}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
+      # For the Content Security Policy's websocket origin.
+      DOMAIN: ${DOMAIN:?Set DOMAIN, e.g. app.0dh.in}
     depends_on:
       - api
 
 volumes:
   pgdata:
   redisdata:
-  caddy_data:
-  caddy_config:

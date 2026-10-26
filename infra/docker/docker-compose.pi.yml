@@ -1,0 +1,129 @@
+name: infusion-platform
+
+# The staff app (https://app.0dh.in) on the Raspberry Pi: the same stack as
+# docker-compose.prod.yml, but from images GitHub Actions builds for arm64
+# (.github/workflows/deploy.yml), so the Pi never compiles anything and its
+# SD card isn't worn by builds. Coolify deploys this file; its proxy routes
+# app.0dh.in to `web` (port 80) and a Cloudflare Tunnel brings visitors in.
+# Set the variables below in Coolify's Environment Variables; ${VAR:?} ones
+# are required. Runbook: docs/deployment.md.
+#
+# Docker logs are capped per container to keep SD card writes down.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-infusion}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-infusion_platform}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Nightly pg_dump files (a Coolify Scheduled Task); copied off the Pi
+      # weekly, since an SD card can fail without warning.
+      - pgbackups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Once per deploy, before the api: pending migrations (and, with
+  # RUN_SEED=true on the first deploy, the initial accounts). The api only
+  # starts if this succeeds. See docker-compose.prod.yml.
+  migrate:
+    image: ${IMAGE_PREFIX:-ghcr.io/sandeepmataridr-bot/portal}-migrate:${IMAGE_TAG:-latest}
+    pull_policy: always
+    working_dir: /workspace/apps/api
+    command: ["sh", "-c", "pnpm exec prisma migrate deploy && if [ \"$$RUN_SEED\" = true ]; then pnpm run db:seed; fi"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-infusion}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-infusion_platform}
+      RUN_SEED: ${RUN_SEED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    # Coolify-only key (a one-shot job, not part of the app's health). Coolify
+    # removes it before running compose; plain `docker compose` rejects it,
+    # so run docker-compose.prod.yml locally instead of this file.
+    exclude_from_hc: true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  api:
+    image: ${IMAGE_PREFIX:-ghcr.io/sandeepmataridr-bot/portal}-api:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-infusion}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-infusion_platform}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      REFRESH_COOKIE_PATH: /api/auth
+      CORS_ORIGINS: https://${DOMAIN:?Set DOMAIN, e.g. app.0dh.in}
+      TRUST_PROXY_HOPS: 1
+      # LIVE: device data is handled as real. On this home Pi (no cover for
+      # patient data) only dummy readings and made-up patients.
+      VIGIL_LIVE_MODE: ${VIGIL_LIVE_MODE:-true}
+      VIGIL_LIVE_TENANT_ID: ${VIGIL_LIVE_TENANT_ID:-0dh-hospital}
+      VIGIL_LIVE_UNIT_ID: ${VIGIL_LIVE_UNIT_ID:-icu-1}
+      VIGIL_TEST_SCENARIO: ${VIGIL_TEST_SCENARIO:-ecmo/oxy_clot_01}
+      VIGIL_TEST_SPEED: ${VIGIL_TEST_SPEED:-60}
+      VIGIL_HL7_CODES: ${VIGIL_HL7_CODES:-}
+      TEST_LOGINS: ${TEST_LOGINS:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  web:
+    image: ${IMAGE_PREFIX:-ghcr.io/sandeepmataridr-bot/portal}-web:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN, e.g. app.0dh.in}
+    depends_on:
+      - api
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  pgdata:
+  pgbackups:
+  redisdata:

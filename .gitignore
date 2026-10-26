@@ -13,3 +13,6 @@ coverage/
 apps/api/generated/
 apps/api/prisma/dev.db
 docker/volumes/
+
+# ESP32 gateway Wi-Fi password and machine token (copy secrets.example.h)
+firmware/**/secrets.h

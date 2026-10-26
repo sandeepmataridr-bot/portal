@@ -1,0 +1,46 @@
+#!/usr/sbin/nft -f
+# Raspberry Pi firewall: nothing on the Pi accepts NEW connections from the
+# internet; only the home network (private IPv4 + link-local/ULA IPv6) and the
+# Pi itself. Visitors reach the portal only through the Cloudflare Tunnel,
+# which connects outwards, and Raspberry Pi Connect is outbound too, so
+# neither needs anything here. This matters for IPv6: the Pi has a public
+# IPv6 address, and home routers often don't shield it the way IPv4 NAT does.
+#
+# Only this table is replaced on load; Docker's own rules are left alone.
+# Loaded at boot by home-only-firewall.service (docs/deployment.md).
+
+table inet home_only
+delete table inet home_only
+
+table inet home_only {
+	set lan4 {
+		type ipv4_addr; flags interval
+		elements = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 }
+	}
+	set lan6 {
+		type ipv6_addr; flags interval
+		elements = { fe80::/10, fc00::/7 }
+	}
+
+	# Services on the Pi itself (SSH, ...).
+	chain input {
+		type filter hook input priority filter - 1; policy accept;
+		ct state established,related accept
+		iif lo accept
+		ip saddr @lan4 accept
+		ip6 saddr @lan6 accept
+		meta l4proto ipv6-icmp accept
+		meta l4proto icmp accept
+		ct state new drop
+	}
+
+	# Containers' published ports (Coolify :8000, its proxy :80/:443, ...),
+	# which Docker forwards. Containers' own outgoing traffic is unaffected.
+	chain forward {
+		type filter hook forward priority filter - 1; policy accept;
+		ct state established,related accept
+		ip saddr @lan4 accept
+		ip6 saddr @lan6 accept
+		iifname { "eth0", "wlan0" } ct state new drop
+	}
+}

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { ClaimDecisionAction } from '@infusion/shared-types';
 import { AppShell } from '../../components/AppShell';
-import { MachineStatusTile } from '../../components/MachineStatusTile';
 import { useClaims } from '../../features/insurance/api';
 import { ClaimActionModal } from '../../features/insurance/ClaimActionModal';
 import { RevokeModal } from '../../features/insurance/RevokeModal';
@@ -32,10 +31,6 @@ export function InsuranceDashboard() {
 
   return (
     <AppShell title="📄 Insurance Claims">
-      <div className="dashboard-cards">
-        <MachineStatusTile />
-      </div>
-
       <div className="toolbar">
         <input className="search-input" placeholder="Search by claim ID, patient, IP..." value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={status} onChange={(e) => setStatus(e.target.value)}>

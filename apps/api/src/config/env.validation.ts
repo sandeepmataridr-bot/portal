@@ -29,9 +29,17 @@ export const envSchema = z.object({
     .min(1, 'CORS_ORIGINS is required (comma-separated allow-list, no wildcards)')
     .transform((value) => value.split(',').map((origin) => origin.trim())),
 
-  // Lists ready-made test accounts (one per role, published passwords) on the
-  // login screen. Honoured only while Vigil runs in TEST mode (simulated
-  // patients); see auth/test-logins.service.ts. Off unless set.
+  // How many reverse proxies stand between visitors and this app. Behind
+  // Caddy (infra/docker/Caddyfile, which sets X-Forwarded-For to the real
+  // visitor IP) this is 1, so req.ip, the login throttle and audit IPs are
+  // per visitor. 0 (direct connections, dev) ignores X-Forwarded-For, which
+  // anyone could otherwise forge.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+
+  // Lists ready-made accounts (one per role, published passwords) in a quick
+  // sign-in table on the login screen. Honoured in Vigil TEST mode, or on a
+  // non-production build; never by a production server in LIVE mode. See
+  // auth/test-logins.service.ts. Off unless set.
   TEST_LOGINS: z
     .enum(['true', 'false'])
     .default('false')

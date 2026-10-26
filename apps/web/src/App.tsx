@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import { RequireRole } from './auth/RequireRole';
 import { LoginPage } from './pages/LoginPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
@@ -12,9 +12,13 @@ import { InsuranceDashboard } from './pages/dashboards/InsuranceDashboard';
 import { SuperUserDashboard } from './pages/dashboards/SuperUserDashboard';
 import { CentralStationPage } from './features/vigil/CentralStationPage';
 
-// The public landing page at the site root (https://0dh.in/). Lazy so its
-// canvas/icon code never weighs on the staff app, and vice versa.
+// The public landing page at the site root. Lazy so its canvas/icon code
+// never weighs on the staff app, and vice versa.
 const WindLandingPage = lazy(() => import('./pages/landing/WindLandingPage').then((m) => ({ default: m.WindLandingPage })));
+
+/** Set when the landing page is hosted on its own (https://0dh.in, vite.landing.config.ts):
+    this app's root then opens the staff entry point instead. */
+const LANDING_URL: string | undefined = import.meta.env.VITE_LANDING_URL || undefined;
 
 function App() {
   return (
@@ -24,9 +28,13 @@ function App() {
       <Route
         path="/"
         element={
-          <Suspense fallback={null}>
-            <WindLandingPage />
-          </Suspense>
+          LANDING_URL ? (
+            <Navigate to="/app" replace />
+          ) : (
+            <Suspense fallback={null}>
+              <WindLandingPage />
+            </Suspense>
+          )
         }
       />
       {/* Staff entry point: dispatches to the signed-in role's dashboard (or /login). */}

@@ -45,7 +45,7 @@ export interface VigilSignalState {
   code: string;
   label: string;
   unit: string;
-  kind: 'numeric' | 'setting' | 'lab';
+  kind: 'numeric' | 'setting' | 'lab' | 'status';
   value: number;
   t: number;
   age: number;

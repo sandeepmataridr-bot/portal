@@ -1,0 +1,10 @@
+# Local production-like run on a PC: publishes the web container (normally
+# reached only through Coolify's proxy) at http://localhost:8080.
+#
+#   docker compose -f infra/docker/docker-compose.prod.yml -f infra/docker/docker-compose.local.yml \
+#     --env-file infra/docker/.env.prod up -d --build
+
+services:
+  web:
+    ports:
+      - "127.0.0.1:8080:80"
