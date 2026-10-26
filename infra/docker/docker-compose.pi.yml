@@ -95,6 +95,8 @@ services:
       VIGIL_TEST_SPEED: ${VIGIL_TEST_SPEED:-60}
       VIGIL_HL7_CODES: ${VIGIL_HL7_CODES:-}
       TEST_LOGINS: ${TEST_LOGINS:-false}
+      # Also on this LIVE production server (public demo, dummy data only).
+      TEST_LOGINS_ON_LIVE: ${TEST_LOGINS_ON_LIVE:-false}
     depends_on:
       postgres:
         condition: service_healthy

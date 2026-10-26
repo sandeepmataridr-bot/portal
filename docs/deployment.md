@@ -110,7 +110,7 @@ curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash
 7. **After the first deploy:**
    - Set `RUN_SEED=false`.
    - Sign in with the seeded accounts, which force a password change, and set strong passwords.
-   - The quick sign-in table stays off: production in LIVE mode ignores `TEST_LOGINS`.
+   - The quick sign-in table is off by default: production in LIVE mode ignores `TEST_LOGINS`. To show it on the public site anyway (a demo with dummy data only), set both `TEST_LOGINS=true` and `TEST_LOGINS_ON_LIVE=true`. Anyone who opens the site can then sign in as any role, admin included.
 
 ### 6. Deploy on every push
 

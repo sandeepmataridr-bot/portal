@@ -29,8 +29,10 @@ function fakePrisma() {
 }
 
 const passwords = { hash: async (plain: string) => `hash:${plain}` } as unknown as PasswordService;
-const config = (testLogins: boolean, nodeEnv: Env['NODE_ENV'] = 'production') =>
-  ({ get: (key: keyof Env) => (key === 'NODE_ENV' ? nodeEnv : testLogins) }) as unknown as ConfigService<Env, true>;
+const config = (testLogins: boolean, nodeEnv: Env['NODE_ENV'] = 'production', onLive = false) =>
+  ({
+    get: (key: keyof Env) => (key === 'NODE_ENV' ? nodeEnv : key === 'TEST_LOGINS_ON_LIVE' ? onLive : testLogins),
+  }) as unknown as ConfigService<Env, true>;
 const LIVE = { VIGIL_LIVE_MODE: 'true', VIGIL_LIVE_TENANT_ID: 'general-hospital', VIGIL_LIVE_UNIT_ID: 'cvicu-3' };
 const switchedOff = (loginIds: readonly string[]) => ({ where: { loginId: { in: [...loginIds] }, isActive: true }, data: { isActive: false } });
 
@@ -77,6 +79,18 @@ describe('TestLoginsService', () => {
     expect(service.enabled).toBe(false);
     expect(calls.upserted).toHaveLength(0);
     expect(calls.deactivated).toEqual([switchedOff([...TEST_ACCOUNTS.map((a) => a.loginId), ...RETIRED_LOGIN_IDS])]);
+  });
+
+  it('serves them on a production build in Vigil LIVE mode only with TEST_LOGINS_ON_LIVE', async () => {
+    Object.assign(process.env, LIVE);
+    const { prisma, calls } = fakePrisma();
+    const service = new TestLoginsService(prisma, passwords, config(true, 'production', true));
+
+    await service.onApplicationBootstrap();
+
+    expect(service.enabled).toBe(true);
+    expect(calls.upserted).toHaveLength(TEST_ACCOUNTS.length);
+    expect(new TestLoginsService(prisma, passwords, config(false, 'production', true)).enabled).toBe(false);
   });
 
   it('switches the accounts off when TEST_LOGINS is off', async () => {

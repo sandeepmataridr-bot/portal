@@ -44,6 +44,13 @@ export const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+  // Deliberate opt-in: also honour TEST_LOGINS on a production server in
+  // Vigil LIVE mode, so the published passwords work on the public site.
+  // Only for a deployment that holds dummy data and made-up patients.
+  TEST_LOGINS_ON_LIVE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

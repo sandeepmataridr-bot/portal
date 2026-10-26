@@ -37,7 +37,8 @@ export const RETIRED_LOGIN_IDS: readonly string[] = [
  * patients, ADR-005; a Vigil configuration that fails to load counts as not
  * TEST) or the API is not a production build (a developer's own machine,
  * where LIVE mode carries only dummy device data). A production server in
- * LIVE mode never serves them. When enabled, start-up (re)creates the
+ * LIVE mode serves them only with the explicit TEST_LOGINS_ON_LIVE=true
+ * (a public demo holding dummy data). When enabled, start-up (re)creates the
  * accounts, ready to use with no forced password change. Otherwise start-up
  * switches any existing ones off, which also ends their sessions (refresh
  * rejects inactive users), so the published passwords never work on a
@@ -54,7 +55,8 @@ export class TestLoginsService implements OnApplicationBootstrap {
     config: ConfigService<Env, true>,
   ) {
     const devBuild = config.get('NODE_ENV', { infer: true }) !== 'production';
-    this.enabled = config.get('TEST_LOGINS', { infer: true }) && (devBuild || vigilTestMode());
+    const onLive = config.get('TEST_LOGINS_ON_LIVE', { infer: true });
+    this.enabled = config.get('TEST_LOGINS', { infer: true }) && (devBuild || onLive || vigilTestMode());
   }
 
   async onApplicationBootstrap(): Promise<void> {
@@ -65,7 +67,7 @@ export class TestLoginsService implements OnApplicationBootstrap {
       data: { isActive: false },
     });
     if (!this.enabled) {
-      if (count) this.logger.log(`Quick sign-in accounts switched off (${count}); TEST_LOGINS is off, or this is production in Vigil LIVE mode`);
+      if (count) this.logger.log(`Quick sign-in accounts switched off (${count}); TEST_LOGINS is off, or this is production in Vigil LIVE mode without TEST_LOGINS_ON_LIVE`);
       return;
     }
     for (const account of TEST_ACCOUNTS) {
