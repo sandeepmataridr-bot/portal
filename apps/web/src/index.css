@@ -573,3 +573,154 @@ button {
 .mirror-view__accent { color: var(--color-primary); font-weight: bold; }
 .mirror-view__controls { margin-top: 16px; }
 .locked-label { color: var(--color-muted); font-size: 0.85rem; }
+
+/* ---------- Plain form fields (outside .patient-form) ---------- */
+.app-shell select,
+.app-shell input:not([type='checkbox']):not([type='radio']),
+.app-shell textarea {
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.info-card > label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-weight: 600;
+}
+.info-card > label select { flex: 1 1 220px; }
+
+/* ---------- Desktop: room for detailed reports ---------- */
+.app-shell__content {
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  min-width: 0;
+}
+/* A table wider than its card scrolls inside the card, never the page. */
+.info-card,
+.patient-list {
+  overflow-x: auto;
+}
+.data-table td { overflow-wrap: anywhere; }
+.data-table tbody tr:hover { background: #f8faf8; }
+
+/* ---------- Phones and small tablets ---------- */
+@media (max-width: 720px) {
+  .app-shell__header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 10px 14px;
+  }
+  .app-shell__header h2 {
+    flex: 1 1 100%;
+    font-size: 1.05rem;
+    line-height: 1.3;
+  }
+  .app-shell__nav {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 0.85rem;
+  }
+  .app-shell__user { margin-left: auto; opacity: 0.85; }
+  .app-shell__nav button { padding: 8px 14px; }
+  .app-shell__content { padding: 12px; }
+  .app-shell__footer { font-size: 0.7rem; }
+  .app-shell__footer p { margin: 0; }
+
+  .info-card,
+  .patient-list {
+    padding: 12px;
+    border-radius: 10px;
+    overflow-x: visible;
+  }
+  .form-section-title { margin-top: 8px; font-size: 1rem; }
+
+  /* Two stat tiles per row. */
+  .dashboard-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stat-tile { padding: 12px 8px; }
+  .stat-tile__value { font-size: 1.5rem; }
+
+  /* Every table row becomes a card: one "label  value" line per cell. */
+  .app-shell .data-table,
+  .app-shell .data-table tbody { display: block; }
+  .app-shell .data-table thead { display: none; }
+  .app-shell .data-table tr {
+    display: block;
+    margin-bottom: 10px;
+    padding: 4px 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+  }
+  .app-shell .data-table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid #f0f0f0;
+    text-align: right;
+  }
+  .app-shell .data-table td:last-child { border-bottom: 0; }
+  .app-shell .data-table td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 38%;
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    text-align: left;
+    margin-right: auto;
+  }
+  .app-shell .data-table td[data-label='']::before { content: none; }
+  .app-shell .data-table td[colspan] { justify-content: center; color: var(--color-muted); }
+  /* Action cells: the buttons line up at the right, wrapping if needed. */
+  .app-shell .data-table td > .inline-buttons,
+  .app-shell .data-table td:has(> button) { flex-wrap: wrap; justify-content: flex-end; }
+
+  /* Forms: one field per row, and 16px text so phones don't zoom in. */
+  .form-row--4 { grid-template-columns: 1fr; }
+  .app-shell select,
+  .app-shell input:not([type='checkbox']):not([type='radio']),
+  .app-shell textarea,
+  .search-input,
+  .patient-form input,
+  .patient-form select,
+  .patient-form textarea { font-size: 16px; min-height: 44px; }
+  .step-row { grid-template-columns: 1fr 1fr; }
+  .step-row__number { grid-column: 1 / -1; }
+
+  /* Finger-sized buttons. */
+  .btn-primary, .btn-secondary, .btn-danger, .btn-warning, .btn-readmit, .btn-discharge,
+  .btn-fulfill, .btn-reject, .btn-approve, .btn-partial, .btn-docs, .btn-revoke,
+  .btn-start, .btn-pause, .btn-stop { min-height: 44px; }
+  .link-button { padding: 6px 0; }
+  .toolbar { flex-wrap: wrap; }
+  .inline-buttons { flex-wrap: wrap; }
+
+  /* Tabs scroll sideways instead of widening the page. */
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tab-button { white-space: nowrap; flex: 0 0 auto; }
+
+  /* Dialogs open as a full-width sheet from the bottom. */
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal-content,
+  .modal-content--wide { max-width: 100%; max-height: 92dvh; border-radius: 14px 14px 0 0; }
+  .modal-body { padding: 14px; }
+  .modal-footer { flex-wrap: wrap; }
+  .modal-footer > button { flex: 1 1 140px; }
+
+  .mirror-view__cards { min-width: 0; }
+  .mirror-view__flow-value { font-size: 2.6rem; }
+  .remarks-text { max-width: none; white-space: normal; }
+}
