@@ -136,7 +136,8 @@ The new readings are displayed; alarm limits for them (e.g. pump speed, temperat
 
 - **Readings:** they wander randomly but stay inside the ECMO HMI's default alarm limits and clear of the portal's ECMO rules, so no alarm is raised. Each numeric reading carries sensor-like noise, so none is flagged FLATLINE.
 - **Which machines run:** a machine whose ID is left as zeros in `secrets.h` is not simulated.
-- **Sending:** all machines share one kept-open connection and take turns; each machine has its own 2-minute offline queue.
+- **Sending:** three sender tasks, each with its own kept-open HTTPS connection, always serve the machine that has waited longest. One request to the hosted portal takes about 0.5-1 s, so a single shared connection reached each machine only every 3-5 s and the portal showed "No live data". Each machine has its own 2-minute offline queue.
+- **Time:** readings are stamped to the millisecond (NTP, re-synced every 15 min). The status line compares the board's clock with the server's and reports "CLOCK OFF" at 2 s or more.
 - **Serial Monitor:** `status`, `off <code>` / `on <code>`. Turning a machine off shows the portal's *No live data* (and, for a confirmed ECMO, the communication-lost alarm).
 
 ## Later: product firmware

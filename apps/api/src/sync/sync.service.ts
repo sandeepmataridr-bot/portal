@@ -229,7 +229,7 @@ export class SyncService {
           workingStatusRaw: typeof payload.workingStatusRaw === 'string' ? payload.workingStatusRaw : null,
           pauseTimeSec: typeof payload.pauseTimeSec === 'number' ? payload.pauseTimeSec : null,
         };
-        await tx.infusionLiveStatus.upsert({
+        const saved = await tx.infusionLiveStatus.upsert({
           where: { machineId: actor.machineId },
           create: { machineId: actor.machineId, ...data, lastUpdateAt: new Date() },
           update: { ...data, lastUpdateAt: new Date() },
@@ -252,8 +252,9 @@ export class SyncService {
         });
         // Live push to any staff dashboard watching this machine — REST
         // pull/push above already recorded it regardless, this is purely a
-        // latency optimization, never the only delivery path.
-        this.gateway.broadcastToDashboard(REALTIME_EVENTS.infusionLiveStatusUpdated, { machineId: actor.machineId, ...data });
+        // latency optimization, never the only delivery path. The saved row, so the
+        // page gets the same fields as GET live-status (lastUpdateAt included).
+        this.gateway.broadcastToDashboard(REALTIME_EVENTS.infusionLiveStatusUpdated, saved);
         break;
       }
       case 'doctor': {

@@ -35,7 +35,7 @@
  * ESP32-S3 N16R8 board settings (Tools menu):
  *   Board               ESP32S3 Dev Module
  *   Flash Size          16MB (128Mb)
- *   PSRAM               OPI PSRAM (not used by the sketch; any setting works)
+ *   PSRAM               OPI PSRAM (recommended: room for the three HTTPS connections)
  *   USB CDC On Boot     Enabled if the cable is in the port marked USB,
  *                       Disabled if it is in the port marked COM/UART
  *   Serial Monitor      115200
@@ -60,7 +60,10 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <math.h>
+#include <sys/time.h>
 #include <time.h>
+
+#include "esp_sntp.h"
 
 #include "root_cas.h"
 #include "secrets.h"  // copy secrets.example.h to secrets.h
@@ -69,6 +72,12 @@
 const size_t QUEUE_LEN = 120;          // per machine: 2 minutes of messages kept while offline
 const size_t BATCH_MAX = 20;           // messages per request when catching up
 const uint32_t STATUS_MS = 10000;      // status lines on the Serial Monitor
+// Requests run in parallel, each sender task with its own HTTPS connection. One request to a
+// hosted portal takes about 0.5-1 s (Wi-Fi, internet, Cloudflare, back to the server), so one
+// connection taking the machines in turn reached each machine only every 3-5 s: the portal then
+// showed "No live data" and the ECMO data-loss alarm. Three senders keep every machine near 1 s.
+const int SENDERS = 3;
+const uint32_t SENDER_STACK = 12288;   // bytes per sender task (TLS handshakes need room)
 
 // ---------------- Readings ----------------
 struct Field {
@@ -150,7 +159,7 @@ enum Kind { K_ECMO, K_EBOO, K_SPO2, K_TEMP, K_MULTI };
     function: the Arduino IDE puts its generated function prototypes there. */
 struct Snapshot {
   uint32_t no;                // message control id
-  time_t t;                   // UTC seconds
+  int64_t tMs;                // UTC milliseconds (sent to the millisecond, so the portal's "updated N s ago" is exact)
   float v[MAX_FIELDS];
 };
 
@@ -166,8 +175,23 @@ struct Machine {
   float v[MAX_FIELDS];        // latest readings
   Snapshot queue[QUEUE_LEN];
   size_t qHead, qCount;
-  uint32_t messageNo, sent, dropped, nextSendAt;
+  uint32_t messageNo, sent, dropped, nextSendAt, lastOkAt;
+  bool busy;                  // a sender is sending for it right now
   String lastResult;
+};
+
+/** One sender task's own connection (see SENDERS). */
+struct Sender {
+  WiFiClientSecure tls;
+  WiFiClient plain;
+  HTTPClient http;
+};
+
+/** The machines' queues, results and the pump's state are shared by loop() and the sender tasks: they change only under this lock. */
+SemaphoreHandle_t stateLock;
+struct Locked {
+  Locked() { xSemaphoreTake(stateLock, portMAX_DELAY); }
+  ~Locked() { xSemaphoreGive(stateLock); }
 };
 
 Machine machines[] = {
@@ -325,7 +349,7 @@ void simulate(Machine &m) {
 }
 
 // ---------------- Message queues (one per machine) ----------------
-void enqueue(Machine &m, time_t t) {
+void enqueue(Machine &m, int64_t tMs) {
   if (m.qCount == QUEUE_LEN) {             // full: the oldest message gives way
     m.qHead = (m.qHead + 1) % QUEUE_LEN;
     m.qCount--;
@@ -333,34 +357,42 @@ void enqueue(Machine &m, time_t t) {
   }
   Snapshot &s = m.queue[(m.qHead + m.qCount) % QUEUE_LEN];
   s.no = ++m.messageNo;
-  s.t = t;
+  s.tMs = tMs;
   memcpy(s.v, m.v, sizeof(s.v));
   m.qCount++;
 }
 
-void dropFromQueue(Machine &m, size_t n) {
-  m.qHead = (m.qHead + n) % QUEUE_LEN;
-  m.qCount -= n;
+/** Removes the messages up to and including number lastNo (the queue may have moved on while they were being sent). */
+void dropUpTo(Machine &m, uint32_t lastNo) {
+  while (m.qCount && m.queue[m.qHead].no <= lastNo) {
+    m.qHead = (m.qHead + 1) % QUEUE_LEN;
+    m.qCount--;
+  }
 }
 
 bool clockValid() { return time(nullptr) > 1700000000; }
 
 /** Once per clock second: every running machine takes its readings. */
-void tick(time_t t) {
+void tick(int64_t tMs) {
   for (size_t i = 0; i < MACHINE_COUNT; i++) {
     Machine &m = machines[i];
     if (!m.enabled) continue;
     simulate(m);                           // keeps moving while paused, so "on" resumes naturally
-    if (!m.paused) enqueue(m, t);
+    if (m.paused) continue;
+    Locked lock;
+    enqueue(m, tMs);
   }
 }
 
 // ---------------- HL7 PCD-01 ORU^R01 ----------------
-String hl7Time(time_t t) {
+/** HL7 TS to the millisecond, UTC: 20261027083513.250+0000 */
+String hl7Time(int64_t ms) {
+  const time_t t = (time_t)(ms / 1000);
   struct tm tm;
   gmtime_r(&t, &tm);
-  char buf[24];
-  strftime(buf, sizeof(buf), "%Y%m%d%H%M%S+0000", &tm);
+  char buf[32];
+  const size_t n = strftime(buf, sizeof(buf), "%Y%m%d%H%M%S", &tm);
+  snprintf(buf + n, sizeof(buf) - n, ".%03d+0000", (int)(ms % 1000));
   return String(buf);
 }
 
@@ -385,7 +417,7 @@ void appendObx(String &out, int &setId, const Field &f, float v, const String &t
 }
 
 String buildFrame(const Machine &m, const Snapshot &s) {
-  const String ts = hl7Time(s.t);
+  const String ts = hl7Time(s.tMs);
   char ctrl[16];
   snprintf(ctrl, sizeof(ctrl), "SM%08lu", (unsigned long)s.no);
   String f;
@@ -407,12 +439,42 @@ String buildFrame(const Machine &m, const Snapshot &s) {
   return f;
 }
 
-// ---------------- Sending ----------------
-WiFiClientSecure tlsClient;
-WiFiClient plainClient;
-HTTPClient http;                           // one connection, kept open, shared by all machines
+// ---------------- Sending (SENDERS tasks in parallel) ----------------
 const bool useHttps = strncmp(SERVER_URL, "https://", 8) == 0;
-size_t nextMachine = 0;
+Sender senders[SENDERS];
+
+// ---------------- Clock check ----------------
+// The portal shows how old each reading is by comparing the reading's time (this board's clock)
+// with its own clock, so the two must agree. Both follow internet time (NTP); this checks it.
+// Every response carries the server side's time ("Date" header, whole seconds), so the
+// difference is known to about 1 s; a difference of 2 s or more is reported.
+volatile int32_t clockDiffS = 0;           // server minus this board, seconds
+volatile bool clockDiffKnown = false;
+
+/** "Tue, 27 Oct 2026 03:08:12 GMT" -> seconds since 1970 (UTC), or -1. */
+int64_t parseHttpDate(const String &text) {
+  static const char *MONTHS = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  char mon[4] = {0};
+  int d, y, h, mi, sec;
+  if (sscanf(text.c_str(), "%*3s, %d %3s %d %d:%d:%d", &d, mon, &y, &h, &mi, &sec) != 6) return -1;
+  const char *at = strstr(MONTHS, mon);
+  if (!at) return -1;
+  struct tm tm = {};
+  tm.tm_year = y - 1900;
+  tm.tm_mon = (at - MONTHS) / 3;
+  tm.tm_mday = d;
+  tm.tm_hour = h;
+  tm.tm_min = mi;
+  tm.tm_sec = sec;
+  return (int64_t)mktime(&tm);             // the board runs on UTC (configTime(0, 0, ...))
+}
+
+void noteServerClock(const String &date) {
+  const int64_t server = parseHttpDate(date);
+  if (server < 0 || !clockValid()) return;
+  clockDiffS = (int32_t)(server - (int64_t)time(nullptr));
+  clockDiffKnown = true;
+}
 
 void appendJsonString(String &out, const String &s) {
   out += '"';
@@ -448,68 +510,74 @@ String firstRejection(const String &body) {
   return body.substring(at + 1, end);
 }
 
-void sendFor(Machine &m) {
-  const size_t n = m.qCount < BATCH_MAX ? m.qCount : BATCH_MAX;
+/** POST as one machine on this sender's connection; returns the HTTP code and the response body. */
+int post(Sender &s, const String &url, const char *id, const char *token, const String &body, String &resp) {
+  const bool begun = useHttps ? s.http.begin(s.tls, url) : s.http.begin(s.plain, url);
+  if (!begun) {
+    resp = "bad SERVER_URL";
+    return -1;
+  }
+  s.http.addHeader("Content-Type", "application/json");
+  s.http.addHeader("X-Machine-Id", id);
+  s.http.addHeader("X-Machine-Token", token);
+  const int code = s.http.POST(body);
+  resp = code > 0 ? s.http.getString() : s.http.errorToString(code);
+  if (code > 0) noteServerClock(s.http.header("Date"));
+  s.http.end();
+  return code;
+}
+
+/** Sends the oldest queued messages of one machine (up to BATCH_MAX). The queue stays shared: copied under the lock, sent without it. */
+void sendFor(Machine &m, Sender &s) {
+  static Snapshot batches[SENDERS][BATCH_MAX];   // one batch buffer per sender, kept off the task stack
+  Snapshot *batch = batches[&s - senders];
+  size_t n;
+  {
+    Locked lock;
+    n = m.qCount < BATCH_MAX ? m.qCount : BATCH_MAX;
+    for (size_t i = 0; i < n; i++) batch[i] = m.queue[(m.qHead + i) % QUEUE_LEN];
+  }
+  if (!n) return;
   String body;
   body.reserve(n * 1900 + 48);
   body += "{\"driver\":\"hl7_pcd01\",\"frames\":[";
   for (size_t i = 0; i < n; i++) {
     if (i) body += ',';
-    appendJsonString(body, buildFrame(m, m.queue[(m.qHead + i) % QUEUE_LEN]));
+    appendJsonString(body, buildFrame(m, batch[i]));
   }
   body += "]}";
 
-  const bool begun = useHttps ? http.begin(tlsClient, SERVER_URL) : http.begin(plainClient, SERVER_URL);
-  if (!begun) {
-    m.lastResult = "bad SERVER_URL";
-    m.nextSendAt = millis() + 30000;
-    return;
-  }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Machine-Id", m.id);
-  http.addHeader("X-Machine-Token", m.token);
-  const int code = http.POST(body);
-  const String resp = code > 0 ? http.getString() : http.errorToString(code);
-  http.end();
-
+  String resp;
+  const int code = post(s, SERVER_URL, m.id, m.token, body, resp);
+  const uint32_t now = millis();
+  Locked lock;
   if (code >= 200 && code < 300) {
     const int rejected = jsonInt(resp, "\"rejected\":");
-    dropFromQueue(m, n);
+    dropUpTo(m, batch[n - 1].no);
     m.sent += n;
+    m.lastOkAt = now;
     m.lastResult = String(code) + ", accepted " + jsonInt(resp, "\"accepted\":") + " of " + n;
     if (rejected > 0) Serial.printf("[%s] server rejected %d message(s): %s\n", m.code, rejected, firstRejection(resp).c_str());
-    m.nextSendAt = millis();
+    m.nextSendAt = now;
   } else if (code == 401) {
     m.lastResult = "401: machine ID or token not accepted; check secrets.h";
-    m.nextSendAt = millis() + 30000;
+    m.nextSendAt = now + 30000;
   } else if (code == 400) {
     m.lastResult = "400: request refused as malformed (messages dropped): " + resp.substring(0, 160);
-    dropFromQueue(m, n);                   // retrying the same messages can never succeed
-    m.nextSendAt = millis() + 5000;
+    dropUpTo(m, batch[n - 1].no);          // retrying the same messages can never succeed
+    m.nextSendAt = now + 5000;
   } else if (code == 403 || code == 404) {
     // 403: the portal is in TEST mode, or the machine is registered as a type that does not send monitoring data
     m.lastResult = String(code) + ": " + resp.substring(0, 160);
-    m.nextSendAt = millis() + 30000;
+    m.nextSendAt = now + 30000;
   } else if (code == 429) {
     m.lastResult = "429: too many requests, slowing down";
-    m.nextSendAt = millis() + 10000;
+    m.nextSendAt = now + 10000;
   } else {
     m.lastResult = String(code) + ": " + resp.substring(0, 120);  // network or server error: keep and retry
-    m.nextSendAt = millis() + 5000;
+    m.nextSendAt = now + 5000;
   }
   if (code < 200 || code >= 300) Serial.printf("[%s] %s\n", m.code, m.lastResult.c_str());
-}
-
-/** One request per call, taking the machines in turn, so a slow or refused machine never holds up the others. */
-void sendPending() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  for (size_t k = 0; k < MACHINE_COUNT; k++) {
-    Machine &m = machines[(nextMachine + k) % MACHINE_COUNT];
-    if (!m.enabled || !m.qCount || (int32_t)(millis() - m.nextSendAt) < 0) continue;
-    nextMachine = (nextMachine + k + 1) % MACHINE_COUNT;
-    sendFor(m);
-    return;
-  }
 }
 
 // ---------------- Infusion pump (sync channel: docs/sync-contract.md) ----------------
@@ -541,8 +609,15 @@ struct Pump {
   uint32_t finishedAt, lastPull, lastStatus, lastAdvance, nextTryAt;
   size_t bag;
   uint32_t sent;
-  String lastResult;
+  bool busy;                               // a sender is working for the pump right now
+  bool hasPatient;                         // read by the scheduler (patientId itself belongs to the pump's sender)
+  String lastResult;                       // under the lock
 } pump = {PUMP_CODE, PUMP_ID, PUMP_TOKEN};
+
+void setPumpResult(const String &text) {
+  Locked lock;
+  pump.lastResult = text;
+}
 
 /** "key":"value" in a JSON object's text (no nesting needed: the keys read here are unique in it). */
 String jsonText(const String &obj, const char *key) {
@@ -616,30 +691,19 @@ void pumpStartBag() {
   pump.lastAdvance = millis();
 }
 
-/** POST to /sync/<path> as the pump; returns the HTTP code and the response body. */
-int pumpPost(const char *path, const String &body, String &resp) {
-  const String url = pump.syncUrl + path;
-  const bool begun = useHttps ? http.begin(tlsClient, url) : http.begin(plainClient, url);
-  if (!begun) {
-    resp = "bad SERVER_URL";
-    return -1;
-  }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Machine-Id", pump.id);
-  http.addHeader("X-Machine-Token", pump.token);
-  const int code = http.POST(body);
-  resp = code > 0 ? http.getString() : http.errorToString(code);
-  http.end();
-  return code;
+/** POST to /sync/<path> as the pump, on this sender's connection. */
+int pumpPost(Sender &s, const char *path, const String &body, String &resp) {
+  return post(s, pump.syncUrl + path, pump.id, pump.token, body, resp);
 }
 
 /** Records a failed request; true when the code means success. */
 bool pumpOk(const char *what, int code, const String &resp) {
   if (code >= 200 && code < 300) return true;
-  pump.lastResult = String(what) + " " + code + ": " + resp.substring(0, 120);
-  if (code == 401) pump.lastResult = String(what) + " 401: machine ID or token not accepted; check secrets.h";
+  const String text = code == 401 ? String(what) + " 401: machine ID or token not accepted; check secrets.h"
+                                  : String(what) + " " + code + ": " + resp.substring(0, 120);
+  setPumpResult(text);
   pump.nextTryAt = millis() + (code == 401 || code == 403 ? 30000 : 5000);
-  Serial.printf("[%s] %s\n", pump.code, pump.lastResult.c_str());
+  Serial.printf("[%s] %s\n", pump.code, text.c_str());
   return false;
 }
 
@@ -648,10 +712,10 @@ bool pumpOk(const char *what, int code, const String &resp) {
  * "infusion_step" proposal is an order step to run. Like the real pump it
  * accepts every new proposal (POST /sync/push with the proposal id).
  */
-void pumpPull() {
+void pumpPull(Sender &s) {
   String resp;
   const String req = String("{\"machineId\":\"") + pump.id + "\",\"sinceVersion\":" + pump.sinceVersion + "}";
-  if (!pumpOk("pull", pumpPost("/pull", req, resp), resp)) return;
+  if (!pumpOk("pull", pumpPost(s, "/pull", req, resp), resp)) return;
 
   String acks;
   const String now = isoTime(time(nullptr));
@@ -666,6 +730,7 @@ void pumpPull() {
       if (patientId.length() && patientId != pump.patientId) {
         pump.patientId = patientId;
         pump.patientName = jsonText(obj, "fullName");
+        pump.hasPatient = true;
         pumpStartBag();
         Serial.printf("[%s] on patient %s\n", pump.code, pump.patientName.c_str());
       }
@@ -695,9 +760,9 @@ void pumpPull() {
   }
   if (acks.length()) {
     const String body = String("{\"machineId\":\"") + pump.id + "\",\"reports\":[" + acks + "]}";
-    if (pumpOk("accept", pumpPost("/push", body, resp), resp)) Serial.printf("[%s] accepted the server's proposals\n", pump.code);
+    if (pumpOk("accept", pumpPost(s, "/push", body, resp), resp)) Serial.printf("[%s] accepted the server's proposals\n", pump.code);
   }
-  if (!pump.patientId.length()) pump.lastResult = "not tagged to a patient yet (Admin -> Machine Fleet -> Assign Patient)";
+  if (!pump.patientId.length()) setPumpResult("not tagged to a patient yet (Admin -> Machine Fleet -> Assign Patient)");
 }
 
 /** The pump runs on: dispensed volume grows at the set rate; a finished bag or step rests, then the next bag starts. */
@@ -718,7 +783,7 @@ void pumpAdvance() {
   }
 }
 
-void pumpReport() {
+void pumpReport(Sender &s) {
   pumpAdvance();
   char nums[160];
   snprintf(nums, sizeof(nums),
@@ -732,30 +797,86 @@ void pumpReport() {
   const String body = String("{\"machineId\":\"") + pump.id + "\",\"reports\":[{\"entityType\":\"infusion_live_status\",\"entityId\":\"" +
                       pump.id + "\",\"outcome\":\"reported\",\"occurredAt\":\"" + isoTime(time(nullptr)) + "\",\"payload\":" + payload + "}]}";
   String resp;
-  if (!pumpOk("status", pumpPost("/push", body, resp), resp)) return;
+  if (!pumpOk("status", pumpPost(s, "/push", body, resp), resp)) return;
   if (resp.indexOf("\"status\":\"error\"") >= 0) {
-    pump.lastResult = "status refused: " + jsonText(resp, "message");
-    Serial.printf("[%s] %s\n", pump.code, pump.lastResult.c_str());
+    const String text = "status refused: " + jsonText(resp, "message");
+    setPumpResult(text);
+    Serial.printf("[%s] %s\n", pump.code, text.c_str());
     return;
   }
-  pump.sent++;
   char line[120];
   snprintf(line, sizeof(line), "ok: %s %.0f mL/h, %.0f of %.0f mL", pump.drug.c_str(), pump.finished ? 0.0f : pump.rateMlPerH,
            pump.dispensedMl, pump.volumeMl);
+  Locked lock;
+  pump.sent++;
   pump.lastResult = line;
 }
 
-/** Pump work for this loop: at most one request, and never while another is due elsewhere. */
-void pumpService() {
-  if (!pump.enabled || pump.paused || WiFi.status() != WL_CONNECTED || !clockValid()) return;
+/** The pump's next request (a sender has claimed the pump): pull if due, else the live status. */
+void runPumpJob(Sender &s) {
   const uint32_t now = millis();
-  if ((int32_t)(now - pump.nextTryAt) < 0) return;
   if (!pump.lastPull || now - pump.lastPull >= PUMP_PULL_MS) {
     pump.lastPull = now;
-    pumpPull();
-  } else if (pump.patientId.length() && now - pump.lastStatus >= PUMP_STATUS_MS) {
+    pumpPull(s);
+  } else {
     pump.lastStatus = now;
-    pumpReport();
+    pumpReport(s);
+  }
+}
+
+// ---------------- Sender tasks ----------------
+const int PUMP_JOB = -2;
+
+/**
+ * The next piece of work for a free sender: the pump when its pull or status is due (a few
+ * requests a minute), else the machine whose oldest unsent reading has waited longest. Claimed
+ * work is marked busy, so two senders never send for the same machine at once.
+ */
+int claimJob() {
+  Locked lock;
+  const uint32_t now = millis();
+  if (pump.enabled && !pump.paused && !pump.busy && (int32_t)(now - pump.nextTryAt) >= 0 &&
+      (!pump.lastPull || now - pump.lastPull >= PUMP_PULL_MS || (pump.hasPatient && now - pump.lastStatus >= PUMP_STATUS_MS))) {
+    pump.busy = true;
+    return PUMP_JOB;
+  }
+  int best = -1;
+  int64_t oldest = 0;
+  for (size_t i = 0; i < MACHINE_COUNT; i++) {
+    const Machine &m = machines[i];
+    if (!m.enabled || m.busy || !m.qCount || (int32_t)(now - m.nextSendAt) < 0) continue;
+    const int64_t waiting = m.queue[m.qHead].tMs;
+    if (best < 0 || waiting < oldest) {
+      best = (int)i;
+      oldest = waiting;
+    }
+  }
+  if (best >= 0) machines[best].busy = true;
+  return best;
+}
+
+void releaseJob(int job) {
+  Locked lock;
+  if (job == PUMP_JOB) pump.busy = false;
+  else machines[job].busy = false;
+}
+
+void senderTask(void *arg) {
+  Sender &s = *static_cast<Sender *>(arg);
+  s.tls.setCACert(ROOT_CAS);
+  s.http.setReuse(true);                   // keep this sender's connection open between requests
+  s.http.setTimeout(8000);
+  const char *keys[] = {"Date"};
+  s.http.collectHeaders(keys, 1);          // the server's clock, for the clock check in the status line
+  for (;;) {
+    const int job = (WiFi.status() == WL_CONNECTED && clockValid()) ? claimJob() : -1;
+    if (job == -1) {
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
+    if (job == PUMP_JOB) runPumpJob(s);
+    else sendFor(machines[job], s);
+    releaseJob(job);
   }
 }
 
@@ -763,7 +884,13 @@ void pumpService() {
 void printStatus() {
   if (WiFi.status() == WL_CONNECTED) Serial.printf("[simulator] Wi-Fi ok %d dBm", WiFi.RSSI());
   else Serial.print("[simulator] Wi-Fi connecting...");
-  Serial.println(clockValid() ? " | clock ok" : " | waiting for time");
+  if (!clockValid()) Serial.print(" | waiting for time");
+  else if (!clockDiffKnown) Serial.print(" | clock ok (server not heard yet)");
+  else if (abs(clockDiffS) >= 2) Serial.printf(" | CLOCK OFF: this board is %ld s %s the server", (long)abs(clockDiffS), clockDiffS > 0 ? "behind" : "ahead of");
+  else Serial.print(" | clock matches the server");
+  Serial.printf(" | %d senders | free memory %u KB%s\n", SENDERS, (unsigned)(ESP.getFreeHeap() / 1024), psramFound() ? " (PSRAM on)" : "");
+  const uint32_t now = millis();
+  Locked lock;
   for (size_t i = 0; i < MACHINE_COUNT; i++) {
     const Machine &m = machines[i];
     if (!m.enabled) {
@@ -773,6 +900,7 @@ void printStatus() {
     Serial.printf("  %-10s %-24s %s sent %lu, queued %u", m.code, m.type, m.paused ? "OFF " : "",
                   (unsigned long)m.sent, (unsigned)m.qCount);
     if (m.dropped) Serial.printf(" (%lu lost offline)", (unsigned long)m.dropped);
+    if (m.lastOkAt) Serial.printf(", last delivered %.1f s ago", (now - m.lastOkAt) / 1000.0f);
     Serial.printf(" | last send: %s\n", m.lastResult.c_str());
   }
   if (!pump.enabled) Serial.printf("  %-10s %-24s not simulated (no credentials in secrets.h)\n", pump.code, "Infusion pump");
@@ -853,11 +981,17 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  configTime(0, 0, "pool.ntp.org", "time.google.com");  // UTC; messages carry +0000
+  // Internet time, UTC (messages carry +0000), checked again every 15 min instead of the default hour,
+  // so the board's clock keeps agreeing with the server's (see the clock check).
+  sntp_set_sync_interval(15 * 60 * 1000UL);
+  configTime(0, 0, "pool.ntp.org", "time.google.com");
 
-  tlsClient.setCACert(ROOT_CAS);
-  http.setReuse(true);                     // keep the connection open between sends
-  http.setTimeout(8000);
+  stateLock = xSemaphoreCreateMutex();
+  for (int i = 0; i < SENDERS; i++) {
+    char name[12];
+    snprintf(name, sizeof(name), "sender%d", i + 1);
+    xTaskCreatePinnedToCore(senderTask, name, SENDER_STACK, &senders[i], 1, nullptr, 1);
+  }
 }
 
 void loop() {
@@ -865,14 +999,14 @@ void loop() {
   static uint32_t lastStatus = 0;
   pollSerialCommands();
   if (clockValid()) {                      // never send without a real time
-    const time_t now = time(nullptr);
-    if (now != lastSecond) {
-      lastSecond = now;
-      tick(now);
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    if (tv.tv_sec != lastSecond) {         // once per clock second, stamped to the millisecond
+      lastSecond = tv.tv_sec;
+      tick((int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000);
     }
   }
-  sendPending();
-  pumpService();
+  delay(5);                                // the senders run in their own tasks
   if (millis() - lastStatus >= STATUS_MS) {
     lastStatus = millis();
     printStatus();

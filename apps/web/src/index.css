@@ -146,9 +146,8 @@ button {
   font-size: 1.9rem;
 }
 
-/* The name links to the home page (0dh.in) */
+/* The name links to the home page (0dh.in); no underline, the cursor and tooltip show it is a link */
 .login-brand__home { color: inherit; text-decoration: none; }
-.login-brand__home:hover, .login-brand__home:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
 
 .login-brand__in {
   color: var(--color-primary);

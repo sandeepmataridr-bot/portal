@@ -25,7 +25,9 @@ export function PumpCard({
   machineId?: string;
 }) {
   const now = useNow();
-  const age = status ? Math.max(0, (now - Date.parse(status.lastUpdateAt)) / 1000) : null;
+  // A pushed update without lastUpdateAt (older servers) counts as just received, never as "NaN ago".
+  const updatedAt = status ? Date.parse(status.lastUpdateAt) : NaN;
+  const age = status ? (Number.isFinite(updatedAt) ? Math.max(0, (now - updatedAt) / 1000) : 0) : null;
   const silent = age !== null && age > MACHINE_SENDING_WINDOW_S;
   const running = status?.pumpState === 'RUNNING';
   const remainingMin = status && status.flowRateMlPerH > 0 ? (status.remainingVolumeMl / status.flowRateMlPerH) * 60 : null;
