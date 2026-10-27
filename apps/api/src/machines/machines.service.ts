@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Prisma } from '@prisma/client';
 import {
   isBidirectionalMachineType,
+  MACHINE_SENDING_WINDOW_S,
   type CreateMachineInput,
   type FleetStatus,
   type MachineCommandSummary,
@@ -40,6 +41,7 @@ export class MachinesService {
       },
       orderBy: { machineCode: 'asc' },
     });
+    const recent = Date.now() - MACHINE_SENDING_WINDOW_S * 1000;
     return machines.map((m) => {
       const assigned = m.patientAssignments[0];
       return {
@@ -50,6 +52,7 @@ export class MachinesService {
         room: m.room,
         status: m.status,
         lastSeenAt: m.lastSeenAt ? m.lastSeenAt.toISOString() : null,
+        sendingData: m.status === 'online' || (!!m.lastSeenAt && m.lastSeenAt.getTime() >= recent),
         assignedPatientId: assigned?.patientId ?? null,
         roomMismatch: !!assigned && assigned.patient.roomId !== m.roomId,
       };
@@ -60,7 +63,7 @@ export class MachinesService {
     const machines = await this.listAll();
     return {
       totalMachines: machines.length,
-      connectedMachines: machines.filter((m) => m.status === 'online').length,
+      connectedMachines: machines.filter((m) => m.sendingData).length,
       machines,
     };
   }
@@ -89,6 +92,7 @@ export class MachinesService {
       room: { id: room.id, name: room.name },
       status: machine.status,
       lastSeenAt: null,
+      sendingData: false,
       assignedPatientId: null,
       roomMismatch: false,
     };
@@ -114,7 +118,7 @@ export class MachinesService {
     const onPatient = machine.patientAssignments[0]?.patient;
     if (onPatient && onPatient.roomId !== room.id) {
       throw new ConflictException(
-        `${machine.machineCode} is on ${onPatient.fullName} in ${onPatient.room?.name ?? 'no room'}. ` +
+        `${machine.machineCode} is on ${onPatient.fullName} in ${onPatient.room?.name ?? 'no room (out patient)'}. ` +
           `Move the patient (their machines move with them) or unassign ${machine.machineCode} first.`,
       );
     }
@@ -147,7 +151,7 @@ export class MachinesService {
     const target = await this.prisma.patient.findUnique({ where: { id: patientId }, include: { room: true } });
     if (!target) throw new NotFoundException('Patient not found');
     if (!machine.roomId) throw new ConflictException(`Set ${machine.machineCode}'s room first`);
-    if (!target.roomId) throw new ConflictException(`Set ${target.fullName}'s room first`);
+    if (!target.roomId) throw new ConflictException(`${target.fullName} is an out patient: give them a room first (Move)`);
     if (machine.roomId !== target.roomId) {
       throw new ConflictException(
         `${machine.machineCode} is in ${machine.room?.name}; ${target.fullName} is in ${target.room?.name}. ` +
@@ -192,8 +196,32 @@ export class MachinesService {
       entityId: assignment.id,
       after: { patientId, machineId, syncStatus },
     });
+    await this.recordOnTimeline(patientId, 'MACHINE_TAGGED', machine, actor);
 
     return assignment;
+  }
+
+  /** Tagging and untagging a machine show in the patient's timeline (with who did it), not only in the audit log. */
+  private async recordOnTimeline(
+    patientId: string,
+    action: 'MACHINE_TAGGED' | 'MACHINE_UNTAGGED',
+    machine: { machineCode: string; machineType: string },
+    actor: AuthenticatedUser,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const patient = await tx.patient.findUnique({ where: { id: patientId } });
+      if (!patient) return;
+      const updated = await tx.patient.update({ where: { id: patientId }, data: { version: patient.version + 1 } });
+      await tx.patientHistory.create({
+        data: {
+          patientId,
+          version: updated.version,
+          action,
+          snapshot: JSON.parse(JSON.stringify({ ...updated, machineCode: machine.machineCode, machineType: machine.machineType })) as Prisma.InputJsonValue,
+          actedBy: actor.loginId,
+        },
+      });
+    });
   }
 
   async unassignPatientFromMachine(patientId: string, machineId: string, actor: AuthenticatedUser) {
@@ -205,6 +233,7 @@ export class MachinesService {
     const updated = await this.prisma.patientMachineAssignment.update({
       where: { id: assignment.id },
       data: { unassignedAt: new Date() },
+      include: { machine: { select: { machineCode: true, machineType: true } } },
     });
 
     await this.audit.log({
@@ -215,6 +244,7 @@ export class MachinesService {
       entityId: assignment.id,
       before: { patientId, machineId },
     });
+    await this.recordOnTimeline(patientId, 'MACHINE_UNTAGGED', updated.machine, actor);
 
     return updated;
   }

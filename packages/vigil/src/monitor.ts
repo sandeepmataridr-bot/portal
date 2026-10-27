@@ -32,7 +32,7 @@ export const NUMERIC_STEP_S = 5.0;
 export const MAX_POINTS = 360;
 const LOG_MAX = 200;
 const LOG_SENT = 60;
-/** Display order: blood flow and pump, pressures, gas, temperatures, heater unit, alarms. */
+/** Display order: blood flow and pump, pressures, gas, temperatures, SvO2, EBOO ozone/UV/O2, heater unit, alarms. */
 const SIGNAL_ORDER = [
   'ECMO_BLOOD_FLOW',
   'ECMO_PUMP_SPEED',
@@ -44,6 +44,11 @@ const SIGNAL_ORDER = [
   'ECMO_FIO2',
   'BG_POST_OXY_PO2',
   'ECMO_BLOOD_TEMP',
+  'ECMO_SVO2',
+  'EBOO_OZONE_CONC',
+  'EBOO_OZONE_ON',
+  'EBOO_UV_ON',
+  'EBOO_O2_ON',
   'HU_WATER_TEMP',
   'HU_SET_TEMP',
   'HU_WATER_FLOW',
@@ -315,6 +320,7 @@ export function operatingLevel(machines: VigilMachineState[], engine: VigilEngin
 
 function machineKind(signals: Map<string, unknown>): string {
   const codes = [...signals.keys()];
+  if (codes.some((c) => c.startsWith('EBOO_'))) return 'EBOO';
   if (codes.some((c) => c.startsWith('ECMO_'))) return 'ECMO console';
   if (codes.some((c) => c.startsWith('BG_'))) return 'Blood gas analyzer';
   const vitals = codes.filter((c) => c.startsWith('VITAL_'));

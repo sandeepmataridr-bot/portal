@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateRoomInput, Room, UpdateRoomInput } from '@infusion/shared-types';
 import { apiFetch } from '../../lib/api';
 
+/** A patient with no room yet (registered before a bed is given) is an out patient. */
+export const OUT_PATIENT = 'Out patient';
+
 /** The admin's room list; active rooms only unless includeInactive. */
 export function useRooms(includeInactive = false) {
   return useQuery({

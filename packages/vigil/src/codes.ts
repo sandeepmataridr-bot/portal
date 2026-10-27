@@ -22,6 +22,8 @@ export const UNITS: Record<string, string> = {
   bpm: '{beats}/min',
   /** breaths per minute */
   brpm: '{breaths}/min',
+  /** ozone concentration, micrograms per millilitre (= mg/L) */
+  'ug/mL': 'ug/mL',
 };
 
 export const TIME_UNITS: Record<string, number> = { ms: 0.001, s: 1.0, min: 60.0, h: 3600.0 };
@@ -118,6 +120,12 @@ export const SIGNALS: Record<string, Signal> = Object.fromEntries(
     signal('ECMO_BLOOD_TEMP', 'degC', SignalKind.NUMERIC, [15.0, 45.0], 'Blood temperature'),
     signal('ECMO_BUBBLE_ALARM', 'flag', SignalKind.STATUS, [0.0, 1.0], 'Air bubble detector'),
     signal('ECMO_LEVEL_ALARM', 'flag', SignalKind.STATUS, [0.0, 1.0], 'Level sensor alarm'),
+    signal('ECMO_SVO2', '%', SignalKind.NUMERIC, [0.0, 100.0], 'Venous oxygen saturation (SvO₂)'),
+    // EBOO (its pump and blood flow use ECMO_PUMP_SPEED and ECMO_BLOOD_FLOW)
+    signal('EBOO_OZONE_CONC', 'ug/mL', SignalKind.NUMERIC, [0.0, 100.0], 'Ozone concentration'),
+    signal('EBOO_OZONE_ON', 'flag', SignalKind.SETTING, [0.0, 1.0], 'Ozone generator on'),
+    signal('EBOO_UV_ON', 'flag', SignalKind.SETTING, [0.0, 1.0], 'UV light on'),
+    signal('EBOO_O2_ON', 'flag', SignalKind.SETTING, [0.0, 1.0], 'Oxygen supply on'),
     // Heater unit (its water circuit warms the oxygenator; HU_WATER_FLOW is
     // that water, never the patient's blood flow)
     signal('HU_WATER_TEMP', 'degC', SignalKind.NUMERIC, [0.0, 45.0], 'Heater unit water temperature'),

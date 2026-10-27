@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type {
   RegisterPatientInput,
@@ -57,12 +57,12 @@ export class PatientsService {
   ) {}
 
   async register(input: RegisterPatientInput, actor: AuthenticatedUser) {
-    await this.requireActiveRoom(input.roomId);
+    if (input.roomId) await this.requireActiveRoom(input.roomId);
     const patientId = await this.prisma.$transaction(async (tx) => {
       const created = await tx.patient.create({
         data: {
           ipNumber: await nextIpNumber(tx),
-          roomId: input.roomId,
+          roomId: input.roomId ?? null,
           fullName: input.fullName,
           age: input.age,
           gender: input.gender,
@@ -378,7 +378,7 @@ export class PatientsService {
   }
 
   /**
-   * Moves a patient to another room (reception, admin). The machines attached
+   * Moves a patient to another room (reception, admin, or the patient's own doctor). The machines attached
    * to them go with them, so a machine and its patient are never in
    * different rooms. ROOM_CHANGED in the history lists the machines moved.
    */
@@ -392,6 +392,11 @@ export class PatientsService {
         include: { room: true, machineAssignments: { where: { unassignedAt: null }, include: { machine: true } } },
       });
       if (!patient) throw new NotFoundException('Patient not found');
+      if (actor.role === 'doctor') {
+        // A doctor sets the room only for their own patients.
+        const me = await tx.doctorProfile.findFirst({ where: { userId: actor.id }, select: { id: true } });
+        if (!me || patient.doctorProfileId !== me.id) throw new ForbiddenException(`Only ${patient.fullName}'s own doctor can change their room`);
+      }
       if (patient.discharged) throw new ConflictException('Patient is discharged; readmit them to choose a room');
       if (patient.roomId === room.id) throw new ConflictException(`${patient.fullName} is already in ${room.name}`);
       fromRoom = patient.room?.name ?? null;

@@ -57,7 +57,14 @@ export class MachineCredentialsService {
     });
     if (!credential) return false;
 
-    await this.prisma.machineCredential.update({ where: { id: credential.id }, data: { lastUsedAt: new Date() } });
+    const now = new Date();
+    await this.prisma.machineCredential.update({ where: { id: credential.id }, data: { lastUsedAt: now } });
+    // Last contact for the fleet screen's online badge. A machine sending every second
+    // writes this at most every 5 s.
+    await this.prisma.machine.updateMany({
+      where: { id: machineId, OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: new Date(now.getTime() - 5000) } }] },
+      data: { lastSeenAt: now },
+    });
     return true;
   }
 }

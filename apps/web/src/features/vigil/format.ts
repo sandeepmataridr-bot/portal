@@ -5,6 +5,13 @@ export const MARK: Record<VigilPriority, string> = { HIGH: '!!!', MEDIUM: '!!', 
 
 export const PATIENT = (label: string | null, encounter: string) => label ?? encounter;
 
+/**
+ * Readings further apart than this (seconds) have a gap between them: the
+ * machine, the network or the server was down. Charts break the line there and
+ * mark the gap; the values table shows it as a row. History is kept at 5 s.
+ */
+export const GAP_S = 30;
+
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Simulated clocks count from scenario start (T+hh:mm:ss); LIVE shows local time. */
@@ -32,7 +39,7 @@ export function fmtVal(v: number | null | undefined): string {
 export const fmtWindow = (s: number) => (s >= 3600 ? `${s / 3600} h` : `${s / 60} min`);
 
 /** How a signal's unit symbol (Vigil's rule-language symbol) reads on screen. */
-const UNIT_LABEL: Record<string, string> = { degC: '°C', flag: '' };
+const UNIT_LABEL: Record<string, string> = { degC: '°C', flag: '', 'ug/mL': 'µg/mL' };
 export const fmtUnit = (unit: string) => UNIT_LABEL[unit] ?? unit;
 
 /** 0/1 device flags: alarms and states read OK / ALARM, settings ON / OFF. */

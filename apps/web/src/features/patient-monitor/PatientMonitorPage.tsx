@@ -4,11 +4,12 @@ import { MACHINE_TYPE_LABEL, isVigilMachineType, type MachineType, type VigilSta
 import { AppShell } from '../../components/AppShell';
 import { useAuth } from '../../auth/AuthContext';
 import { useLiveStatus } from '../infusions/api';
-import { InfusionLiveCard } from '../infusions/InfusionLiveCard';
+import { PumpCard } from '../vigil/PumpCard';
 import { usePatient } from '../patients/api';
 import { MARK, fmtWindow } from '../vigil/format';
 import type { Ready } from '../vigil/actions';
 import { MachineCard } from '../vigil/MachineCard';
+import { OUT_PATIENT } from '../rooms/api';
 import { getSnapshot, setWindow, start, subscribe } from '../vigil/store';
 import '../vigil/central-station.css';
 
@@ -66,7 +67,7 @@ export function PatientMonitorPage() {
         </button>
         {patient && (
           <span className="pm-meta">
-            {patient.room ? `${patient.room.name} · ` : ''}
+            {patient.room?.name ?? OUT_PATIENT} · 
             {machines.length} machine{machines.length === 1 ? '' : 's'} attached
             {patient.discharged ? ' · discharged' : ''}
           </span>
@@ -175,9 +176,12 @@ function VigilMachine({ machine, state }: { machine: AttachedMachine; state: Rea
 function InfusionMachine({ machine }: { machine: AttachedMachine }) {
   const { data: status } = useLiveStatus(machine.machineId);
   return (
-    <section className="info-card pm-machine" aria-label={`Infusion pump ${machine.code}`}>
-      <h3 className="pm-machine-title">💧 Infusion pump · {machine.code}</h3>
-      {status ? <InfusionLiveCard status={status} /> : <p className="form-hint">No live telemetry reported for this pump yet.</p>}
+    <section className="pm-machine" aria-label={`Infusion pump ${machine.code}`}>
+      <div className="vigil-cs is-embedded">
+        <div className="machines">
+          <PumpCard code={machine.code} status={status} />
+        </div>
+      </div>
     </section>
   );
 }

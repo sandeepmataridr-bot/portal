@@ -91,6 +91,8 @@ services:
       VIGIL_LIVE_MODE: ${VIGIL_LIVE_MODE:-true}
       VIGIL_LIVE_TENANT_ID: ${VIGIL_LIVE_TENANT_ID:-0dh-hospital}
       VIGIL_LIVE_UNIT_ID: ${VIGIL_LIVE_UNIT_ID:-icu-1}
+      # Days of device messages kept for the charts after a restart (vigil_frames).
+      VIGIL_HISTORY_DAYS: ${VIGIL_HISTORY_DAYS:-30}
       VIGIL_TEST_SCENARIO: ${VIGIL_TEST_SCENARIO:-ecmo/oxy_clot_01}
       VIGIL_TEST_SPEED: ${VIGIL_TEST_SPEED:-60}
       VIGIL_HL7_CODES: ${VIGIL_HL7_CODES:-}

@@ -1,9 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { VIGIL_GOOD_SQI, type VigilPoint, type VigilPriority, type VigilSignalState } from '@infusion/shared-types';
-import { fmtTime, fmtUnit, fmtVal, fmtWindow } from './format';
+import { GAP_S, fmtDur, fmtTime, fmtUnit, fmtVal, fmtWindow } from './format';
 
-/** Break the line across data gaps longer than this (seconds). */
-const GAP_S = 30;
 const H = 92;
 const L = 38;
 const R = 10;
@@ -79,6 +77,9 @@ export function LineChart({ sig, now, win, bands, simulated }: Props) {
     prev = p;
   }
   const lastGood = good[good.length - 1];
+  // Gaps between readings (machine, network or server down): shaded, labelled when wide enough.
+  const gaps: [number, number][] = [];
+  for (let i = 1; i < pts.length; i++) if (pts[i][0] - pts[i - 1][0] > GAP_S) gaps.push([pts[i - 1][0], pts[i][0]]);
 
   // Hover / keyboard focus: nearest point to the pointer, or the latest one.
   let hover: VigilPoint | null = null;
@@ -122,6 +123,22 @@ export function LineChart({ sig, now, win, bands, simulated }: Props) {
           return xb > xa ? (
             <rect key={i} className={`alert-band ${pri}`} x={xa} y={T} width={Math.max(2, xb - xa)} height={H - T - B} />
           ) : null;
+        })}
+        {gaps.map(([a, b]) => {
+          const xa = Math.max(L, x(a));
+          const xb = Math.min(W - R, x(b));
+          if (xb <= xa) return null;
+          return (
+            <g key={`gap${a}`}>
+              <title>{`No data for ${fmtDur(b - a)} (${fmtTime(a, simulated)} to ${fmtTime(b, simulated)})`}</title>
+              <rect className="gap" x={xa} y={T} width={Math.max(2, xb - xa)} height={H - T - B} />
+              {xb - xa >= 46 && (
+                <text className="gap-label" x={(xa + xb) / 2} y={T + 12} textAnchor="middle">
+                  no data
+                </text>
+              )}
+            </g>
+          );
         })}
         {ticks.map((v) => {
           const yy = y(v);

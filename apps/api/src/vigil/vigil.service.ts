@@ -17,6 +17,10 @@ import {
   VigilEngine,
   WallClock,
   MonitorHub,
+  HISTORY_S,
+  NUMERIC_STEP_S,
+  SIGNALS,
+  SignalKind,
   buildAck,
   describeMode,
   frames,
@@ -51,6 +55,10 @@ import { VigilAuditService } from './vigil-audit.service.js';
 const ASSOCIATION_SYNC_MS = 10_000;
 /** TEST-mode playback timer resolution. */
 const PLAYBACK_MS = 100;
+/** How often LIVE mode deletes stored device messages older than VIGIL_HISTORY_DAYS. */
+const HISTORY_PRUNE_MS = 6 * 3600_000;
+/** Stored messages replayed per database read at start-up. */
+const REPLAY_BATCH = 2000;
 
 interface TestRun {
   scenario: Scenario;
@@ -96,7 +104,10 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   // LIVE mode
   private tickTimer: NodeJS.Timeout | null = null;
   private syncTimer: NodeJS.Timeout | null = null;
+  private pruneTimer: NodeJS.Timeout | null = null;
   private syncing: Promise<void> | null = null;
+  /** Per machine code: device time of the last stored message, and the last alarm-flag/setting values seen. */
+  private readonly stored = new Map<string, { t: number; flags: Map<string, number> }>();
   private readonly machineIds = new Map<string, string>(); // machineCode -> machine id
   private readonly patientLabels = new Map<string, string>(); // patient id -> "Name (IP no.)"
 
@@ -138,8 +149,8 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   }
 
   private stopTimers(): void {
-    for (const t of [this.playbackTimer, this.tickTimer, this.syncTimer]) if (t) clearInterval(t);
-    this.playbackTimer = this.tickTimer = this.syncTimer = null;
+    for (const t of [this.playbackTimer, this.tickTimer, this.syncTimer, this.pruneTimer]) if (t) clearInterval(t);
+    this.playbackTimer = this.tickTimer = this.syncTimer = this.pruneTimer = null;
   }
 
   private stats(): Record<string, number> {
@@ -268,6 +279,12 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
       },
     });
     this.ledger.append('live', 'run_start', { mode: 'live', rules: engine.rules.map((r) => r.key) });
+    // Before any association exists: the replayed data rebuilds the charts but reaches no rule.
+    try {
+      await this.replayHistory(engine);
+    } catch (e) {
+      this.logger.error(`history replay failed: ${e instanceof Error ? e.message : e}`);
+    }
     try {
       await this.syncAssociations();
     } catch (e) {
@@ -285,6 +302,64 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`association sync failed: ${e instanceof Error ? e.message : e}`),
       );
     }, ASSOCIATION_SYNC_MS);
+    const prune = () =>
+      this.pruneHistory().catch((e: unknown) => this.logger.error(`history clean-up failed: ${e instanceof Error ? e.message : e}`));
+    void prune();
+    this.pruneTimer = setInterval(prune, HISTORY_PRUNE_MS);
+  }
+
+  /** Replays the stored device messages of the last HISTORY_S (the charts' span) into a new LIVE engine. */
+  private async replayHistory(engine: VigilEngine): Promise<void> {
+    const since = new Date(Date.now() - HISTORY_S * 1000);
+    let cursor: bigint | null = null;
+    let count = 0;
+    for (;;) {
+      const rows: { id: bigint; machineCode: string; driver: string; frame: string }[] = await this.prisma.vigilFrame.findMany({
+        where: { receivedAt: { gte: since }, ...(cursor === null ? {} : { id: { gt: cursor } }) },
+        orderBy: { id: 'asc' },
+        take: REPLAY_BATCH,
+        select: { id: true, machineCode: true, driver: true, frame: true },
+      });
+      for (const r of rows) {
+        try {
+          this.remember(r.machineCode, engine.receive(r.driver, r.frame, { deviceId: r.machineCode }));
+          count += 1;
+        } catch (e) {
+          this.logger.warn(`stored message ${r.id} not replayed: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+      if (rows.length < REPLAY_BATCH) break;
+      cursor = rows[rows.length - 1].id;
+    }
+    if (count) this.logger.log(`history: ${count} stored device messages replayed into the charts`);
+  }
+
+  private async pruneHistory(): Promise<void> {
+    const before = new Date(Date.now() - this.cfg!.historyDays * 86_400_000);
+    const { count } = await this.prisma.vigilFrame.deleteMany({ where: { receivedAt: { lt: before } } });
+    if (count) this.logger.log(`history: ${count} device messages older than ${this.cfg!.historyDays} days deleted`);
+  }
+
+  /**
+   * Whether an accepted message is stored: one every NUMERIC_STEP_S per machine (the charts'
+   * resolution), and every one in which an alarm flag or a setting changed, so no change is lost.
+   * Also records what was seen, for the next decision.
+   */
+  private remember(machineCode: string, envs: { validTime: number; payload: { code: string; value: number } }[]): boolean {
+    const m = this.stored.get(machineCode) ?? { t: -Infinity, flags: new Map<string, number>() };
+    this.stored.set(machineCode, m);
+    let store = false;
+    let newest = -Infinity;
+    for (const env of envs) {
+      newest = Math.max(newest, env.validTime);
+      const sig = SIGNALS[env.payload.code];
+      if (!sig || (sig.kind !== SignalKind.STATUS && sig.kind !== SignalKind.SETTING)) continue;
+      if (m.flags.get(env.payload.code) !== env.payload.value) store = true;
+      m.flags.set(env.payload.code, env.payload.value);
+    }
+    if (newest - m.t >= NUMERIC_STEP_S) store = true;
+    if (store && newest > -Infinity) m.t = Math.max(m.t, newest);
+    return store;
   }
 
   /** Coalesces concurrent sync requests into one database read. */
@@ -364,16 +439,24 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
     if (!this.machineIds.has(machine.machineCode)) await this.syncAssociations();
 
     const acks: string[] = [];
+    const keep: string[] = [];
     let accepted = 0;
     for (const frame of input.frames) {
       try {
         parseOru(frame); // reject malformed messages with an AE before they reach the engine
-        this.engine.receive(input.driver, frame, { deviceId: machine.machineCode });
+        const envs = this.engine.receive(input.driver, frame, { deviceId: machine.machineCode });
+        if (this.remember(machine.machineCode, envs)) keep.push(frame);
         acks.push(buildAck(frame, 'AA'));
         accepted += 1;
       } catch (e) {
         acks.push(buildAck(frame, 'AE', e instanceof Error ? e.message : String(e)));
       }
+    }
+    if (keep.length) {
+      // Kept for the charts after a restart. A failed write never refuses data the engine already has.
+      await this.prisma.vigilFrame
+        .createMany({ data: keep.map((frame) => ({ machineId, machineCode: machine.machineCode, driver: input.driver, frame })) })
+        .catch((e: unknown) => this.logger.error(`device messages not stored: ${e instanceof Error ? e.message : e}`));
     }
     return { accepted, rejected: input.frames.length - accepted, acks };
   }

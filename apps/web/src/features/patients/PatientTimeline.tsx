@@ -1,5 +1,6 @@
-import { DOCTOR_CHANGE_REASON_LABEL, type DoctorChangeReason } from '@infusion/shared-types';
+import { DOCTOR_CHANGE_REASON_LABEL, MACHINE_TYPE_LABEL, type DoctorChangeReason, type MachineType } from '@infusion/shared-types';
 import type { PatientHistoryEntry } from './api';
+import { OUT_PATIENT } from '../rooms/api';
 
 const BADGE_CLASS: Record<string, string> = {
   REGISTER: 'badge-register',
@@ -13,6 +14,8 @@ const BADGE_CLASS: Record<string, string> = {
   IP_LINKED_TO: 'badge-ip-link',
   IP_UNLINKED: 'badge-ip-link',
   ROOM_CHANGED: 'badge-room-changed',
+  MACHINE_TAGGED: 'badge-machine',
+  MACHINE_UNTAGGED: 'badge-machine',
   DOCTOR_SUGGESTION: 'badge-doctor-update',
   DOCTOR_SUGGESTION_DELETED: 'badge-doctor-update',
   INSURANCE_APPROVED: 'badge-insurance-approved',
@@ -63,12 +66,25 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
     );
   }
 
+  if (entry.action === 'MACHINE_TAGGED' || entry.action === 'MACHINE_UNTAGGED') {
+    const type = String(s.machineType ?? '');
+    return (
+      <div className="timeline-entry__body">
+        <p>
+          {entry.action === 'MACHINE_TAGGED' ? 'Machine attached' : 'Machine removed'}: <b>{String(s.machineCode ?? '?')}</b>
+          {type ? ` (${MACHINE_TYPE_LABEL[type as MachineType] ?? type})` : ''}
+        </p>
+        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+      </div>
+    );
+  }
+
   if (entry.action === 'ROOM_CHANGED') {
     const moved = Array.isArray(s.machinesMoved) ? (s.machinesMoved as string[]) : [];
     return (
       <div className="timeline-entry__body">
         <p>
-          Room: {String(s.fromRoom ?? 'none')} → <b>{String(s.toRoom ?? '?')}</b>
+          Room: {String(s.fromRoom ?? OUT_PATIENT)} → <b>{String(s.toRoom ?? '?')}</b>
         </p>
         {moved.length ? <p>Machines moved with the patient: {moved.join(', ')}</p> : null}
         {s.note ? <p>Note: {String(s.note)}</p> : null}

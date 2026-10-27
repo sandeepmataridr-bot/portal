@@ -23,8 +23,8 @@ export const patientVitalsSchema = z.object({
   temperatureF: z.number().min(0).max(110).optional(),
   diagnosis: z.string().max(200).optional(),
   doctorId: z.string().uuid('Attending doctor is required'),
-  /** The room the patient is admitted to (from the admin's room list). */
-  roomId: z.string().uuid('Room is required'),
+  /** The room the patient is admitted to (from the admin's room list). Often not known yet at registration: reception sets it later (Move). */
+  roomId: z.string().uuid().optional(),
 });
 
 // Plain object shape (no refinements) so it can still be `.partial()`-ed for

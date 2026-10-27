@@ -7,6 +7,7 @@ import { ChangeDoctorForm } from './ChangeDoctorForm';
 import { EditIdentityForm } from './EditIdentityForm';
 import { MoveRoomForm } from './MoveRoomForm';
 import { PatientTimeline } from './PatientTimeline';
+import { OUT_PATIENT } from '../rooms/api';
 
 function yesNo(v: boolean) {
   return v ? 'Yes' : 'No';
@@ -131,7 +132,7 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
             <div>
               <b>Room</b>
               <p>
-                {patient.room?.name ?? '—'}
+                {patient.room?.name ?? OUT_PATIENT}
                 {canChangeDoctor && !movingRoom && (
                   <>
                     {' '}

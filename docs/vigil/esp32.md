@@ -14,6 +14,7 @@ Heater controller -serial-/
 | File | What it is |
 |---|---|
 | [`firmware/esp32-ecmo-gateway/`](../../firmware/esp32-ecmo-gateway/) | Gateway sketch (Arduino IDE, esp32 core 3.x, no extra libraries) |
+| [`firmware/esp32-machine-simulator/`](../../firmware/esp32-machine-simulator/) | One ESP32-S3 acting as up to six separate machines (ECMO, EBOO, SpO₂, temperature, multi-parameter, infusion pump) with random in-range readings. See [Machine simulator](#machine-simulator) |
 | [`firmware/hu-controller/`](../../firmware/hu-controller/) | Heater-unit controller sketch (Uno/Nano) with telemetry added |
 | [`firmware/PROTOCOL.md`](../../firmware/PROTOCOL.md) | Controller → gateway line format, wiring, and the snippet for the ECMO controller |
 
@@ -102,6 +103,9 @@ Content-Type: application/json
 | `ECMO_BLOOD_TEMP` | `Cel` | Blood temperature |
 | `ECMO_BUBBLE_ALARM` | `{flag}` | Air bubble detector: OK / ALARM |
 | `ECMO_LEVEL_ALARM` | `{flag}` | Level sensor: OK / ALARM |
+| `ECMO_SVO2` | `%` | Venous oxygen saturation (SvO₂) |
+| `EBOO_OZONE_CONC` | `ug/mL` | EBOO ozone concentration (µg/mL) |
+| `EBOO_OZONE_ON`, `EBOO_UV_ON`, `EBOO_O2_ON` | `{flag}` | EBOO ozone generator, UV light, oxygen supply: ON / OFF (settings) |
 | `HU_WATER_TEMP` | `Cel` | Heater water temperature |
 | `HU_SET_TEMP` | `Cel` | Heater set temperature (setting) |
 | `HU_WATER_LEVEL` | `%` | Heater water level |
@@ -116,6 +120,24 @@ Content-Type: application/json
 - **Oxygenator failure trend.**
 
 The new readings are displayed; alarm limits for them (e.g. pump speed, temperatures, the bubble and low-water flags) need clinically agreed thresholds and are a follow-up in `packages/vigil/rules/`.
+
+## Machine simulator
+
+[`firmware/esp32-machine-simulator/`](../../firmware/esp32-machine-simulator/) turns one ESP32-S3 (e.g. N16R8), with nothing wired to it, into several machines. Each one logs in with its own machine ID and token, so the portal sees separate machines that can be tagged to patients one by one.
+
+| Machine (register as) | Sends |
+|---|---|
+| ECMO | The ECMO HMI's readings: flow, pump speed, Pv, pre/post-oxygenator pressure, dP, sweep gas, FiO2, blood temperature, SvO2, bubble/level, heater unit |
+| EBOO | Pump speed (~13 rpm) and flow (~0.13 L/min), heart rate, SpO2, ozone concentration, ozone/UV/O2 on |
+| SpO₂ monitor | SpO2, pulse rate, perfusion index |
+| Temperature monitor | Body temperature |
+| Multi-parameter monitor | SpO2, pulse, heart rate, temperature, NIBP, respiration, perfusion index |
+| Infusion pump | Over the sync channel, not HL7: it pulls its proposals, accepts its patient (and any order step), then pushes live status every 5 s: drug, flow rate, dispensed and remaining volume. With no order step it runs a bag of saline, Ringer or dextrose. It never changes an order's steps. |
+
+- **Readings:** they wander randomly but stay inside the ECMO HMI's default alarm limits and clear of the portal's ECMO rules, so no alarm is raised. Each numeric reading carries sensor-like noise, so none is flagged FLATLINE.
+- **Which machines run:** a machine whose ID is left as zeros in `secrets.h` is not simulated.
+- **Sending:** all machines share one kept-open connection and take turns; each machine has its own 2-minute offline queue.
+- **Serial Monitor:** `status`, `off <code>` / `on <code>`. Turning a machine off shows the portal's *No live data* (and, for a confirmed ECMO, the communication-lost alarm).
 
 ## Later: product firmware
 The bench gateway is an Arduino sketch. The product version moves to ESP-IDF, with:

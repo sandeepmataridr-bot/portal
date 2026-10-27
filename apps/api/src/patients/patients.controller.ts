@@ -116,8 +116,8 @@ export class PatientsController {
     return this.patients.updateIdentity(id, body, user);
   }
 
-  // Reception moves a patient to another room; their machines move with them.
-  @Roles('admin', 'reception')
+  // Reception (or the patient's own doctor) moves a patient to another room; their machines move with them.
+  @Roles('admin', 'reception', 'doctor')
   @Patch(':id/room')
   moveRoom(
     @Param('id') id: string,

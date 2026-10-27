@@ -146,6 +146,10 @@ button {
   font-size: 1.9rem;
 }
 
+/* The name links to the home page (0dh.in) */
+.login-brand__home { color: inherit; text-decoration: none; }
+.login-brand__home:hover, .login-brand__home:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
+
 .login-brand__in {
   color: var(--color-primary);
 }
@@ -457,6 +461,9 @@ button {
 .form-section-title { margin: 20px 0 8px; color: var(--color-primary); border-bottom: 2px solid var(--color-border); padding-bottom: 4px; }
 .field-error { color: var(--color-danger); font-size: 0.75rem; font-weight: normal; }
 .form-error { color: var(--color-danger); font-size: 0.85rem; }
+/* Issue credential: type CONFIRM before the machine's token is replaced */
+.credential-confirm label { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-weight: 600; }
+.credential-confirm input { font-size: 1rem; letter-spacing: 0.08em; text-transform: none; }
 .frozen-field-notice { background: #eceff1; padding: 10px; border-radius: 4px; font-size: 0.85rem; margin-bottom: 12px; }
 
 .condition-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px; }
@@ -502,6 +509,7 @@ button {
 .badge-identity-update { background: #b2ebf2; color: #006064; }
 .badge-ip-link { background: #ffe0b2; color: #bf360c; }
 .badge-room-changed { background: #c5cae9; color: #283593; }
+.badge-machine { background: #b2dfdb; color: #00574b; }
 
 /* ---------- Rooms ---------- */
 .rooms-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -604,6 +612,8 @@ button {
 .mirror-view__cards { flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 12px; }
 .mirror-view__row { background: #f0f2f5; padding: 8px 10px; border-radius: 4px; margin-top: 6px; }
 .mirror-view__accent { color: var(--color-primary); font-weight: bold; }
+.mirror-view__alert { color: var(--color-danger); font-weight: bold; }
+.mirror-view__flow-value--old { color: var(--color-muted); text-decoration: line-through; }
 .mirror-view__controls { margin-top: 16px; }
 .locked-label { color: var(--color-muted); font-size: 0.85rem; }
 
@@ -777,3 +787,7 @@ button {
   .mirror-view__flow-value { font-size: 2.6rem; }
   .remarks-text { max-width: none; white-space: normal; }
 }
+
+/* Doctor panel: the patient's room, with Move / Assign room */
+.doctor-room { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.doctor-room .change-doctor { flex-basis: 100%; }

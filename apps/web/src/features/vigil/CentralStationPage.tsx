@@ -1,11 +1,16 @@
 import { Component, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import type { VigilAlertView, VigilLogEntry, VigilState } from '@infusion/shared-types';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import type { MachineSummary, VigilAlertView, VigilLogEntry, VigilState } from '@infusion/shared-types';
 import { useAuth } from '../../auth/AuthContext';
+import { apiFetch } from '../../lib/api';
+import { useLiveStatus } from '../infusions/api';
+import { useFleetStatus } from '../machines/api';
 import { hideFallback, showFallback } from './fallback';
 import { MARK, PATIENT, fmtAgo, fmtDur, fmtTime, fmtWindow } from './format';
 import { errorText, post, type Ready } from './actions';
 import { MachineCard } from './MachineCard';
+import { PumpCard } from './PumpCard';
 import { effectiveLevel, getSnapshot, setWindow, start, subscribe, type Connection } from './store';
 import './central-station.css';
 
@@ -432,13 +437,46 @@ function RulesPanel({ state }: { state: Ready | null }) {
 
 // ── machines ──────────────────────────────────────────────────────────────
 
+/** A tagged infusion pump. The patient's name comes from a Vigil machine on the same patient, else from their record. */
+function CentralPump({ pump, state }: { pump: MachineSummary; state: Ready | null }) {
+  const patientId = pump.assignedPatientId!;
+  const { data: status } = useLiveStatus(pump.id);
+  const vigilLabel = state?.machines.find((m) => m.encounterId === patientId)?.patientLabel ?? null;
+  const { data: record } = useQuery({
+    queryKey: ['patient-label', patientId],
+    queryFn: () => apiFetch<{ fullName: string; ipNumber: string | null }>(`/patients/${patientId}`),
+    enabled: !vigilLabel,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  const label = vigilLabel ?? (record ? `${record.fullName}${record.ipNumber ? ` (${record.ipNumber})` : ''}` : null);
+  return <PumpCard code={pump.machineCode} status={status} patient={{ id: patientId, label }} machineId={pump.id} />;
+}
+
 function Machines({ state, window: win }: { state: Ready | null; window: number }) {
-  const machines = state?.machines ?? [];
+  // ?patient=<id> (the doctor's "Open patient monitor"): only that patient's machines. Alerts stay unfiltered.
+  const [params, setParams] = useSearchParams();
+  const only = params.get('patient');
+  const machines = (state?.machines ?? []).filter((m) => !only || m.encounterId === only);
+  // Infusion pumps report over the sync channel, not to Vigil, so they come from the fleet list.
+  const { data: fleet } = useFleetStatus();
+  const pumps = (fleet?.machines ?? []).filter(
+    (m) => m.machineType === 'INFUSION_PUMP' && m.assignedPatientId && (!only || m.assignedPatientId === only),
+  );
+  const onlyLabel = only ? (state?.machines.find((m) => m.encounterId === only)?.patientLabel ?? 'one patient') : null;
   return (
     <>
+      {only && (
+        <p className="patient-filter">
+          Machines of <b>{onlyLabel}</b> · click a machine for its full screen ·{' '}
+          <button type="button" className="link" onClick={() => setParams({}, { replace: true })}>
+            Show all machines
+          </button>
+        </p>
+      )}
       <div className="toolbar">
         <h2 id="machines-h">
-          Machines <span className="count">{machines.length}</span>
+          Machines <span className="count">{machines.length + pumps.length}</span>
         </h2>
         {state && (
           <div className="seg" role="radiogroup" aria-label="Chart time window">
@@ -452,10 +490,17 @@ function Machines({ state, window: win }: { state: Ready | null; window: number 
       </div>
       <div className="machines">
         {state && machines.map((m) => <MachineCard key={m.deviceId} m={m} state={state} />)}
+        {pumps.map((p) => (
+          <CentralPump key={p.id} pump={p} state={state} />
+        ))}
       </div>
-      {!machines.length && (
+      {!machines.length && !pumps.length && (
         <p className="empty big">
-          {state ? 'No monitoring machines are tagged to a patient or sending data yet.' : 'Waiting for the server.'}
+          {!state
+            ? 'Waiting for the server.'
+            : only
+              ? 'No machines are tagged to this patient.'
+              : 'No monitoring machines are tagged to a patient or sending data yet.'}
         </p>
       )}
     </>

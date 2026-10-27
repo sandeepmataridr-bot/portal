@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   VIGIL_GOOD_SQI,
@@ -6,7 +6,7 @@ import {
   type VigilMachineState,
   type VigilSignalState,
 } from '@infusion/shared-types';
-import { MARK, PATIENT, fmtAgo, fmtDur, fmtFlag, fmtTime, fmtUnit, fmtVal } from './format';
+import { GAP_S, MARK, PATIENT, fmtAgo, fmtDur, fmtFlag, fmtTime, fmtUnit, fmtVal } from './format';
 import { LineChart, type AlertBand } from './LineChart';
 import { alertBands, errorText, post, type Ready } from './actions';
 
@@ -24,7 +24,7 @@ const STATUS_TEXT: Record<VigilMachineState['status'], string> = {
   unassociated: 'Not associated',
 };
 
-/** linkPatient: the patient's name opens their patient monitor page (off on that page itself). */
+/** linkPatient: the machine's name opens its screen, the patient monitor page on its tab (off on that page itself). */
 export function MachineCard({ m, state, linkPatient = true }: { m: VigilMachineState; state: Ready; linkPatient?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -46,13 +46,19 @@ export function MachineCard({ m, state, linkPatient = true }: { m: VigilMachineS
   return (
     <article className={`machine${silent ? ' is-nodata' : ''}`} data-alert={m.alertPriority ?? ''} aria-label={`Machine ${m.deviceId}`}>
       <div className="m-head">
-        <div>
-          <h3>{m.deviceId}</h3>
-          <div className="m-kind">
-            {m.kind} · {m.driver}
-            {m.unmapped ? ` · ${m.unmapped} unmapped values` : ''}
+        {linkPatient && m.encounterId && m.machineId ? (
+          <Link
+            className="m-open"
+            to={`/patients/${encodeURIComponent(m.encounterId)}/monitor?tab=${encodeURIComponent(m.machineId)}`}
+            title="Open this machine's screen"
+          >
+            <MachineTitle m={m} open />
+          </Link>
+        ) : (
+          <div>
+            <MachineTitle m={m} />
           </div>
-        </div>
+        )}
         <span className={`status ${m.status}`}>
           {silent && m.age != null ? `No live data for ${fmtDur(m.age)}` : STATUS_TEXT[m.status]}
         </span>
@@ -60,14 +66,7 @@ export function MachineCard({ m, state, linkPatient = true }: { m: VigilMachineS
       <p className="m-patient">
         {m.encounterId ? (
           <>
-            Patient{' '}
-            {linkPatient ? (
-              <Link to={`/patients/${encodeURIComponent(m.encounterId)}/monitor`}>
-                <b>{PATIENT(m.patientLabel, m.encounterId)}</b>
-              </Link>
-            ) : (
-              <b>{PATIENT(m.patientLabel, m.encounterId)}</b>
-            )}
+            Patient <b>{PATIENT(m.patientLabel, m.encounterId)}</b>
             {m.therapy && ` · ${m.therapy}${m.therapyDetail ? ` ${m.therapyDetail}` : ''}`}
             {m.confirmedBy ? ` · confirmed by ${m.confirmedBy}` : ' · not confirmed, rules paused'}
           </>
@@ -103,6 +102,28 @@ export function MachineCard({ m, state, linkPatient = true }: { m: VigilMachineS
         )}
       </div>
     </article>
+  );
+}
+
+/** The machine's name and kind; on the central station both open its screen (`open` adds the hint). */
+function MachineTitle({ m, open = false }: { m: VigilMachineState; open?: boolean }) {
+  return (
+    <>
+      <h3>
+        {m.deviceId}
+        {open && (
+          <>
+            {' '}
+            <span aria-hidden="true">›</span>
+            <span className="m-open-hint">Details</span>
+          </>
+        )}
+      </h3>
+      <div className="m-kind">
+        {m.kind} · {m.driver}
+        {m.unmapped ? ` · ${m.unmapped} unmapped values` : ''}
+      </div>
+    </>
   );
 }
 
@@ -153,6 +174,7 @@ function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; st
         </button>
       </div>
       {showTable && (
+        <div className="vals-scroll">
         <table className="vals">
           <thead>
             <tr>
@@ -163,17 +185,28 @@ function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; st
           </thead>
           <tbody>
             {sig.points
-              .slice(-10)
+              .slice()
               .reverse()
-              .map((p) => (
-                <tr key={p[0]}>
-                  <td>{fmtTime(p[0], state.simulatedClock)}</td>
-                  <td className="num">{fmtVal(p[1])}</td>
-                  <td className="num">{p[2] < VIGIL_GOOD_SQI ? `${p[2].toFixed(1)} low` : p[2].toFixed(1)}</td>
-                </tr>
-              ))}
+              .map((p, i, rows) => {
+                const older = rows[i + 1];
+                return (
+                  <Fragment key={p[0]}>
+                    <tr>
+                      <td>{fmtTime(p[0], state.simulatedClock)}</td>
+                      <td className="num">{fmtVal(p[1])}</td>
+                      <td className="num">{p[2] < VIGIL_GOOD_SQI ? `${p[2].toFixed(1)} low` : p[2].toFixed(1)}</td>
+                    </tr>
+                    {older && p[0] - older[0] > GAP_S && (
+                      <tr className="gap-row">
+                        <td colSpan={3}>— no data for {fmtDur(p[0] - older[0])} —</td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

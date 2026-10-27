@@ -70,6 +70,17 @@ describe('0dh device frames', () => {
     expect(new SignalQuality().assess('d', SIGNALS.ECMO_BUBBLE_ALARM, 0, 2)).toEqual([0.0, ['OUT_OF_RANGE']]);
   });
 
+  it('does not call a value a flatline across a gap (device, network or server down)', () => {
+    const q = new SignalQuality();
+    for (let t = 0; t <= 20; t += 5) q.assess('d', SIGNALS.VITAL_SPO2, t, 97);
+    // six minutes without data, then the same value again: watched for 0 s, not 6 min
+    expect(q.assess('d', SIGNALS.VITAL_SPO2, 380, 97)).toEqual([1.0, []]);
+    // a real flatline still shows once the value stays identical for 60 s without a gap
+    let last: [number, string[]] = [1.0, []];
+    for (let t = 385; t <= 445; t += 5) last = q.assess('d', SIGNALS.VITAL_SPO2, t, 97);
+    expect(last).toEqual([0.3, ['FLATLINE']]);
+  });
+
   it('keeps heater water flow apart from the patient blood flow', () => {
     const [s] = parseOru(gatewayFrame(1792600000, [['HU_WATER_FLOW', 0.0, 'L/min']]));
     expect(Normalizer.withDefaults().normalize('hl7_pcd01', s, 'as-1').code).toBe('HU_WATER_FLOW');
@@ -160,5 +171,36 @@ describe('0dh device frames', () => {
       SignalKind.NUMERIC,
     ]);
     expect(m.unmapped).toBe(0);
+  });
+
+  it('shows an EBOO machine (esp32-machine-simulator) with its ozone, UV and O2 readings', () => {
+    const engine = new VigilEngine({
+      liveMode: true,
+      tenantId: 'hospital',
+      unitId: 'icu-1',
+      nodeId: 'icu-1-core-a',
+      clock: new WallClock(),
+      safetyRules: [],
+      coreRules: [],
+    });
+    const hub = new MonitorHub(engine, { runId: 1 });
+    const eboo: [string, number, string][] = [
+      ['ECMO_PUMP_SPEED', 13.1, '{rpm}'],
+      ['ECMO_BLOOD_FLOW', 0.131, 'L/min'],
+      ['VITAL_HEART_RATE', 78, '{beats}/min'],
+      ['VITAL_SPO2', 97, '%'],
+      ['EBOO_OZONE_CONC', 31.2, 'ug/mL'],
+      ['EBOO_OZONE_ON', 1, '{flag}'],
+      ['EBOO_UV_ON', 1, '{flag}'],
+      ['EBOO_O2_ON', 1, '{flag}'],
+    ];
+    engine.receive('hl7_pcd01', gatewayFrame(Math.floor(Date.now() / 1000), eboo), { deviceId: 'EBOO-001' });
+
+    const state = hub.snapshot(900, [900], null, 'live');
+    if (!state.ready) throw new Error('monitor not ready');
+    const [m] = state.machines;
+    expect([m.deviceId, m.kind, m.unmapped]).toEqual(['EBOO-001', 'EBOO', 0]);
+    const sig = (code: string) => m.signals.find((s) => s.code === code)!;
+    expect([sig('EBOO_OZONE_CONC').value, sig('EBOO_OZONE_CONC').unit, sig('EBOO_UV_ON').kind]).toEqual([31.2, 'ug/mL', SignalKind.SETTING]);
   });
 });

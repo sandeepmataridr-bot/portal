@@ -92,12 +92,15 @@ export class Normalizer {
 export const FLATLINE_S = 60.0;
 /** a "flush" lasting longer than this is accepted as a real level change */
 export const MAX_ARTIFACT_S = 300.0;
+/** samples further apart than this are not continuous: a flatline needs the value watched without a gap */
+export const SAMPLE_GAP_S = 30.0;
 
 interface Channel {
   baseline: number | null;
   artifactSince: number | null;
   lastValue: number | null;
   sameSince: number | null;
+  lastT: number | null;
 }
 
 /**
@@ -105,6 +108,7 @@ interface Channel {
  *   - out of plausible range        -> 0.0, OUT_OF_RANGE
  *   - step artifact (e.g. flush)    -> 0.1, FLUSH while the value stays away from baseline
  *   - flatline (numeric channels)   -> 0.3, FLATLINE after an identical value for FLATLINE_S
+ *     without a gap of more than SAMPLE_GAP_S between samples
  * Settings and lab results only get the range check.
  */
 export class SignalQuality {
@@ -117,7 +121,7 @@ export class SignalQuality {
 
     let ch = this.channels.get(key);
     if (!ch) {
-      ch = { baseline: null, artifactSince: null, lastValue: null, sameSince: null };
+      ch = { baseline: null, artifactSince: null, lastValue: null, sameSince: null, lastT: null };
       this.channels.set(key, ch);
     }
     let sqi = 1.0;
@@ -140,12 +144,15 @@ export class SignalQuality {
       if (ch.artifactSince === null) ch.baseline = value;
     }
 
+    // After a gap (device, network or server down) the value was not watched: the flatline count restarts.
+    if (ch.lastT !== null && t - ch.lastT > SAMPLE_GAP_S) ch.sameSince = t;
     if (value === ch.lastValue) {
       if (ch.sameSince !== null && t - ch.sameSince >= FLATLINE_S && sqi > 0.3) [sqi, flags] = [0.3, ['FLATLINE']];
     } else {
       ch.sameSince = t;
     }
     ch.lastValue = value;
+    ch.lastT = t;
     return [sqi, flags];
   }
 }

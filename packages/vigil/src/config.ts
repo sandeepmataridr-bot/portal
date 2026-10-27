@@ -32,6 +32,8 @@ export interface VigilConfig {
   autostart: boolean;
   // LIVE only
   codeMaps: Record<string, Record<string, string>>;
+  /** days of accepted device messages kept in the database (VIGIL_HISTORY_DAYS, default 30) */
+  historyDays: number;
 }
 
 const TRUE = new Set(['1', 'true', 'yes', 'on']);
@@ -76,6 +78,7 @@ export function loadVigilConfig(env: Record<string, string | undefined> = proces
       speed,
       autostart: get('VIGIL_TEST_AUTOSTART') ? parseBool(get('VIGIL_TEST_AUTOSTART'), 'VIGIL_TEST_AUTOSTART') : true,
       codeMaps: {},
+      historyDays: 0,
     };
   }
 
@@ -104,6 +107,8 @@ export function loadVigilConfig(env: Record<string, string | undefined> = proces
       problems.push('VIGIL_HL7_CODES must be a JSON object of "<coding system>:<code>": "<SIGNAL>"');
     }
   }
+  const historyDays = get('VIGIL_HISTORY_DAYS') ? Number(get('VIGIL_HISTORY_DAYS')) : 30;
+  if (!(historyDays > 0)) problems.push('VIGIL_HISTORY_DAYS must be a positive number of days');
   if (problems.length) {
     throw new VigilConfigError(`LIVE mode configuration is incomplete:\n  - ${problems.join('\n  - ')}`);
   }
@@ -118,6 +123,7 @@ export function loadVigilConfig(env: Record<string, string | undefined> = proces
     speed: 0,
     autostart: false,
     codeMaps,
+    historyDays,
   };
 }
 
@@ -128,6 +134,7 @@ export function describeMode(cfg: VigilConfig): string[] {
       `  tenant ${cfg.tenantId}, unit ${cfg.unitId}, node ${cfg.nodeId}`,
       '  data: HL7 PCD-01 from registered ECMO machines (POST /vigil/ingest); simulators refused',
       '  associations: active patient-machine assignments; rules run only once confirmed',
+      `  history: device messages kept ${cfg.historyDays} days; the last 6 h reload into the charts at start-up`,
     ];
   }
   return [

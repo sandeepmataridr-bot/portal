@@ -46,6 +46,9 @@ function testRows(accounts: TestLogin[]): TestRow[] {
   return accounts.map((account) => ({ ...account, key: account.role, page: ROLE_HOME[account.role] }));
 }
 
+/** The home page: https://0dh.in when it is hosted on its own (VITE_LANDING_URL), else this app's root. */
+const HOME_URL: string = import.meta.env.VITE_LANDING_URL || '/';
+
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -91,11 +94,13 @@ export function LoginPage() {
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <div className="login-brand">
             <h1>
-              0dh
-              {/* The domain's dot is the live light, as on the home page; a real "." stays for screen readers and copy-paste. */}
-              <span className="login-brand__sr">.</span>
-              <span className="login-brand__live" aria-hidden="true" />
-              <span className="login-brand__in">in</span>
+              <a className="login-brand__home" href={HOME_URL} title="0dh.in home page">
+                0dh
+                {/* The domain's dot is the live light, as on the home page; a real "." stays for screen readers and copy-paste. */}
+                <span className="login-brand__sr">.</span>
+                <span className="login-brand__live" aria-hidden="true" />
+                <span className="login-brand__in">in</span>
+              </a>
             </h1>
           </div>
           <label>

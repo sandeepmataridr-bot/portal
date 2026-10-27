@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { registerPatientSchema, type RegisterPatientInput } from '@infusion/shared-types';
 import { Modal } from '../../components/Modal';
 import { useActiveDoctors } from '../doctors/api';
-import { useRooms } from '../rooms/api';
+import { OUT_PATIENT, useRooms } from '../rooms/api';
 import { useInsuranceCompanies } from '../insurance/api';
 import { useRegisterPatient } from './api';
 
@@ -159,9 +159,9 @@ export function RegisterPatientModal({ onClose }: { onClose: () => void }) {
             {errors.doctorId && <span className="field-error">{errors.doctorId.message}</span>}
           </label>
           <label>
-            Room *
-            <select {...register('roomId')}>
-              <option value="">-- Select --</option>
+            Room
+            <select {...register('roomId', { setValueAs: (v: string) => v || undefined })}>
+              <option value="">{OUT_PATIENT}</option>
               {rooms?.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}

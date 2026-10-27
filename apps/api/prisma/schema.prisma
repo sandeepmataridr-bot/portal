@@ -740,3 +740,22 @@ model VigilAuditRecord {
   @@unique([mode, seq])
   @@map("vigil_audit_ledger")
 }
+
+// Device messages Vigil accepted in LIVE mode (HL7 PCD-01, exactly as the
+// machine sent them), so the central station's charts survive a server
+// restart: at start-up the last 6 h are replayed into the engine before any
+// patient association exists, which rebuilds the charts but can never raise
+// an alarm. One message is kept every 5 s per machine (the charts' own
+// resolution) plus every message in which an alarm flag or a setting
+// changed. Rows older than VIGIL_HISTORY_DAYS are deleted.
+model VigilFrame {
+  id          BigInt   @id @default(autoincrement())
+  machineId   String
+  machineCode String
+  driver      String
+  frame       String
+  receivedAt  DateTime @default(now())
+
+  @@index([receivedAt])
+  @@map("vigil_frames")
+}

@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { DoctorSummary, MachineType } from '@infusion/shared-types';
-import { MACHINE_TYPES, MACHINE_TYPE_LABEL } from '@infusion/shared-types';
+import type { DoctorSummary, MachineSummary, MachineType } from '@infusion/shared-types';
+import { MACHINE_TYPES, MACHINE_TYPE_LABEL, isVigilMachineType } from '@infusion/shared-types';
 import { AppShell } from '../../components/AppShell';
+import { ConfirmTypedModal } from '../../components/ConfirmTypedModal';
 import { useAuth } from '../../auth/AuthContext';
 import { StatTile } from '../../components/StatTile';
-import { useFleetStatus, useCreateMachine, useIssueMachineCredential } from '../../features/machines/api';
+import { useFleetStatus, useCreateMachine } from '../../features/machines/api';
 import { AssignPatientModal } from '../../features/machines/AssignPatientModal';
+import { IssueCredentialModal } from '../../features/machines/IssueCredentialModal';
 import { MachineMirrorView } from '../../features/machines/MachineMirrorView';
+import { VigilMirrorView } from '../../features/machines/VigilMirrorView';
 import { PatientLinksCard } from '../../features/patients/PatientLinksCard';
 import { RoomsCard } from '../../features/rooms/RoomsCard';
 import { useMoveMachine, useRooms } from '../../features/rooms/api';
@@ -28,7 +31,6 @@ function FleetPanel() {
   const { data: fleet } = useFleetStatus();
   const { data: allPatients } = usePatients('');
   const createMachine = useCreateMachine();
-  const issueCredential = useIssueMachineCredential();
   const untag = useUntagPatientMachine();
   const { user } = useAuth();
   // Machine credentials are issued by the superuser only (their Admin tab).
@@ -40,8 +42,12 @@ function FleetPanel() {
   const [fleetError, setFleetError] = useState('');
   const [moveError, setMoveError] = useState('');
   const [issued, setIssued] = useState<{ machineId: string; machineCode: string; token: string } | null>(null);
+  // Issuing a credential cuts the machine off until it gets the new one, so it needs CONFIRM typed first.
+  const [confirmIssue, setConfirmIssue] = useState<MachineSummary | null>(null);
+  // Unassigning stops a machine's data being shown and checked for its patient: CONFIRM first too.
+  const [confirmUnassign, setConfirmUnassign] = useState<MachineSummary | null>(null);
   const [assignModal, setAssignModal] = useState<{ machineId: string; machineCode: string } | null>(null);
-  const [mirrorMachine, setMirrorMachine] = useState<{ machineId: string; machineCode: string } | null>(null);
+  const [mirrorMachine, setMirrorMachine] = useState<{ machineId: string; machineCode: string; pump: boolean } | null>(null);
 
   const patientName = (id: string) => allPatients?.find((p) => p.id === id)?.fullName ?? id;
 
@@ -67,13 +73,6 @@ function FleetPanel() {
     }
   };
 
-  const issueFor = async (machineId: string) => {
-    setIssued(await issueCredential.mutateAsync(machineId));
-  };
-
-  const unassign = (machineId: string, patientId: string) => {
-    untag.mutate({ id: patientId, machineId });
-  };
 
   return (
     <div className="info-card">
@@ -127,12 +126,17 @@ function FleetPanel() {
                 )}
               </td>
               <td>
-                <span className={`badge ${m.status === 'online' ? 'badge-yes' : 'badge-no'}`}>{m.status}</span>
+                <span
+                  className={`badge ${m.sendingData ? 'badge-yes' : 'badge-no'}`}
+                  title={m.lastSeenAt ? `Last heard from ${new Date(m.lastSeenAt).toLocaleString()}` : 'Never heard from'}
+                >
+                  {m.sendingData ? 'online' : 'offline'}
+                </span>
               </td>
               <td>
                 {m.assignedPatientId ? (
                   <>
-                    <Link to={`/patients/${encodeURIComponent(m.assignedPatientId)}/monitor`}>{patientName(m.assignedPatientId)}</Link>
+                    <Link to={`/central-station?patient=${encodeURIComponent(m.assignedPatientId)}`}>{patientName(m.assignedPatientId)}</Link>
                     {m.roomMismatch && (
                       <span className="status-badge status-pending room-mismatch" title="The patient is in a different room">
                         ⚠ room mismatch
@@ -146,20 +150,20 @@ function FleetPanel() {
               <td>
                 {isSuperuser && (
                   <>
-                    <button type="button" className="link-button" onClick={() => issueFor(m.id)}>
+                    <button type="button" className="link-button" onClick={() => setConfirmIssue(m)}>
                       🔑 Issue Credential
                     </button>{' '}
                   </>
                 )}
-                {m.machineType === 'INFUSION_PUMP' && (
+                {(m.machineType === 'INFUSION_PUMP' || isVigilMachineType(m.machineType)) && (
                   <>
-                    <button type="button" className="link-button" onClick={() => setMirrorMachine({ machineId: m.id, machineCode: m.machineCode })}>
+                    <button type="button" className="link-button" onClick={() => setMirrorMachine({ machineId: m.id, machineCode: m.machineCode, pump: m.machineType === 'INFUSION_PUMP' })}>
                       📟 View Live
                     </button>{' '}
                   </>
                 )}
                 {m.assignedPatientId ? (
-                  <button type="button" className="link-button" onClick={() => unassign(m.id, m.assignedPatientId!)} disabled={untag.isPending}>
+                  <button type="button" className="link-button" onClick={() => setConfirmUnassign(m)}>
                     ✖ Unassign
                   </button>
                 ) : (
@@ -187,8 +191,47 @@ function FleetPanel() {
         />
       )}
 
-      {mirrorMachine && (
+      {mirrorMachine?.pump && (
         <MachineMirrorView machineId={mirrorMachine.machineId} machineCode={mirrorMachine.machineCode} onClose={() => setMirrorMachine(null)} />
+      )}
+      {mirrorMachine && !mirrorMachine.pump && (
+        <VigilMirrorView machineCode={mirrorMachine.machineCode} onClose={() => setMirrorMachine(null)} />
+      )}
+
+      {confirmUnassign?.assignedPatientId && (
+        <ConfirmTypedModal
+          title={`✖ Unassign ${confirmUnassign.machineCode}`}
+          action="Unassign machine"
+          busyLabel="Unassigning…"
+          onConfirm={async () => {
+            await untag.mutateAsync({ id: confirmUnassign.assignedPatientId!, machineId: confirmUnassign.id });
+            setConfirmUnassign(null);
+          }}
+          onClose={() => setConfirmUnassign(null)}
+        >
+          <p className="form-error">
+            ⚠️ <strong>{confirmUnassign.machineCode}</strong> will no longer be attached to{' '}
+            <strong>{patientName(confirmUnassign.assignedPatientId)}</strong>. From that moment its readings are not shown on their
+            page and no alarm rules run on it for them.
+          </p>
+          {confirmUnassign.sendingData && (
+            <p className="form-error">
+              <strong>{confirmUnassign.machineCode} is sending data right now.</strong>
+            </p>
+          )}
+          <p>Only do this when the machine has really been taken off this patient. It is recorded in the patient&apos;s timeline.</p>
+        </ConfirmTypedModal>
+      )}
+
+      {confirmIssue && (
+        <IssueCredentialModal
+          machine={confirmIssue}
+          onClose={() => setConfirmIssue(null)}
+          onIssued={(credential) => {
+            setIssued(credential);
+            setConfirmIssue(null);
+          }}
+        />
       )}
 
       {issued && (

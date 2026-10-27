@@ -80,6 +80,9 @@ export const createMachineSchema = z.object({
 export type CreateMachineInput = z.infer<typeof createMachineSchema>;
 
 export const machineConnectionStatusSchema = z.enum(['online', 'offline']);
+
+/** A machine heard from within this many seconds counts as online on the fleet screen. */
+export const MACHINE_SENDING_WINDOW_S = 30;
 export type MachineConnectionStatus = z.infer<typeof machineConnectionStatusSchema>;
 
 export const machineSchema = z.object({
@@ -89,8 +92,16 @@ export const machineSchema = z.object({
   /** The room's name (kept for older screens). */
   location: z.string().optional(),
   room: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
+  /** Live WebSocket connection (the infusion pump app). Remote commands need it. */
   status: machineConnectionStatusSchema,
+  /** Last authenticated contact: WebSocket, sync request or monitoring data. */
   lastSeenAt: z.string().datetime().nullable(),
+  /**
+   * Online on the fleet screen: connected, or sent something within
+   * MACHINE_SENDING_WINDOW_S. ECMO and the monitors send HL7 over plain
+   * requests and never hold a connection, so `status` alone would always say offline.
+   */
+  sendingData: z.boolean(),
   assignedPatientId: z.string().uuid().nullable(),
   /** The assigned patient is in a different room (an assignment made before rooms were enforced). */
   roomMismatch: z.boolean(),

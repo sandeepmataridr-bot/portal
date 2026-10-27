@@ -7,6 +7,8 @@ import { useAuth } from '../../auth/AuthContext';
 import { useActiveDoctors } from '../../features/doctors/api';
 import { usePatients, usePatient } from '../../features/patients/api';
 import { PatientTimeline } from '../../features/patients/PatientTimeline';
+import { MoveRoomForm } from '../../features/patients/MoveRoomForm';
+import { OUT_PATIENT } from '../../features/rooms/api';
 import { InfusionStepsPanel } from '../../features/infusions/InfusionStepsPanel';
 import { DoctorClinicalForm } from './DoctorClinicalForm';
 import { RequestMedicineForm } from './RequestMedicineForm';
@@ -19,6 +21,8 @@ export function DoctorDashboard() {
   const { data: patients } = usePatients('', me?.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data: patient } = usePatient(selectedId);
+  // The doctor can give their patient a room (an out patient has none) or move them.
+  const [movingRoom, setMovingRoom] = useState(false);
 
   const activeAssignment = patient?.machineAssignments[0];
 
@@ -32,7 +36,7 @@ export function DoctorDashboard() {
       <div className="info-card">
         <label>
           Active Patients
-          <select value={selectedId ?? ''} onChange={(e) => setSelectedId(e.target.value || null)}>
+          <select value={selectedId ?? ''} onChange={(e) => (setSelectedId(e.target.value || null), setMovingRoom(false))}>
             <option value="">-- Select --</option>
             {patients?.map((p) => (
               <option key={p.id} value={p.id}>
@@ -47,11 +51,24 @@ export function DoctorDashboard() {
           </p>
         )}
         {patient && (
-          <Link className="btn-primary pm-open" to={`/patients/${encodeURIComponent(patient.id)}/monitor`}>
+          <Link className="btn-primary pm-open" to={`/central-station?patient=${encodeURIComponent(patient.id)}`}>
             🩺 Open patient monitor
             {patient.machineAssignments.length > 0 &&
               ` (${patient.machineAssignments.length} machine${patient.machineAssignments.length === 1 ? '' : 's'})`}
           </Link>
+        )}
+        {patient && (
+          <div className="doctor-room">
+            <span>
+              Room: <strong>{patient.room?.name ?? OUT_PATIENT}</strong>
+            </span>{' '}
+            {!patient.discharged && !movingRoom && (
+              <button type="button" className="link-button" onClick={() => setMovingRoom(true)}>
+                ✏️ {patient.room ? 'Move' : 'Assign room'}
+              </button>
+            )}
+            {movingRoom && <MoveRoomForm patient={patient} onDone={() => setMovingRoom(false)} />}
+          </div>
         )}
       </div>
 
