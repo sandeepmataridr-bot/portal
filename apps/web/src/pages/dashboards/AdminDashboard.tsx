@@ -150,41 +150,38 @@ function FleetPanel() {
                   '—'
                 )}
               </td>
-              <td>
-                {isSuperuser && (
-                  <>
-                    <button type="button" className="link-button" onClick={() => setConfirmIssue(m)}>
-                      🔑 Issue Credential
-                    </button>{' '}
-                    {isVigilMachineType(m.machineType) && (
-                      <>
-                        <button type="button" className="link-button" onClick={() => setValuesFor(m)}>
-                          👁 Values
-                        </button>{' '}
-                      </>
-                    )}
-                  </>
-                )}
-                {(m.machineType === 'INFUSION_PUMP' || isVigilMachineType(m.machineType)) && (
-                  <>
-                    <button type="button" className="link-button" onClick={() => setMirrorMachine({ machineId: m.id, machineCode: m.machineCode, pump: m.machineType === 'INFUSION_PUMP' })}>
+              <td className="actions-cell">
+                {/* Same order on every row: look (View Live, Values), then what changes something (red outline). */}
+                <div className="row-actions">
+                  {(m.machineType === 'INFUSION_PUMP' || isVigilMachineType(m.machineType)) && (
+                    <button
+                      type="button"
+                      className="act"
+                      onClick={() => setMirrorMachine({ machineId: m.id, machineCode: m.machineCode, pump: m.machineType === 'INFUSION_PUMP' })}
+                    >
                       📟 View Live
-                    </button>{' '}
-                  </>
-                )}
-                {m.assignedPatientId ? (
-                  <button type="button" className="link-button" onClick={() => setConfirmUnassign(m)}>
-                    ✖ Unassign
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() => setAssignModal({ machineId: m.id, machineCode: m.machineCode })}
-                  >
-                    🧑‍⚕️ Assign Patient
-                  </button>
-                )}
+                    </button>
+                  )}
+                  {isSuperuser && isVigilMachineType(m.machineType) && (
+                    <button type="button" className="act" onClick={() => setValuesFor(m)}>
+                      👁 Values
+                    </button>
+                  )}
+                  {m.assignedPatientId ? (
+                    <button type="button" className="act act--danger" onClick={() => setConfirmUnassign(m)}>
+                      ✖ Unassign
+                    </button>
+                  ) : (
+                    <button type="button" className="act act--primary" onClick={() => setAssignModal({ machineId: m.id, machineCode: m.machineCode })}>
+                      🔗 Assign
+                    </button>
+                  )}
+                  {isSuperuser && (
+                    <button type="button" className="act act--danger" onClick={() => setConfirmIssue(m)}>
+                      🔑 Credential
+                    </button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
