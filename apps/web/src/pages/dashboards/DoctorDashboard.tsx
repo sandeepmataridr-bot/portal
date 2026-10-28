@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppShell } from '../../components/AppShell';
 import { StatTile } from '../../components/StatTile';
-import { MachineStatusTile } from '../../components/MachineStatusTile';
 import { useAuth } from '../../auth/AuthContext';
 import { useActiveDoctors } from '../../features/doctors/api';
 import { usePatients, usePatient } from '../../features/patients/api';
@@ -28,9 +27,16 @@ export function DoctorDashboard() {
 
   return (
     <AppShell title={`👨‍⚕️ Doctor Panel${me ? ` — Dr. ${me.name}` : ''}`}>
+      {/* This doctor's own patients (all of them, admitted and discharged); deaths are a discharge outcome. */}
       <div className="dashboard-cards">
-        <StatTile label="My Patients" value={patients?.length ?? '…'} />
-        <MachineStatusTile />
+        <StatTile label="Patients treated" value={patients?.length ?? '…'} />
+        <StatTile label="In-patients" value={patients ? patients.filter((p) => !p.discharged).length : '…'} tone="success" />
+        <StatTile
+          label="Discharged"
+          value={patients ? patients.filter((p) => p.discharged && p.dischargeOutcome !== 'DIED').length : '…'}
+          tone="info"
+        />
+        <StatTile label="Died" value={patients ? patients.filter((p) => p.dischargeOutcome === 'DIED').length : '…'} tone="danger" />
       </div>
 
       <div className="info-card">

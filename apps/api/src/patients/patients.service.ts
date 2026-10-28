@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type {
+  DischargeOutcome,
   RegisterPatientInput,
   ReadmitPatientInput,
   DischargePatientInput,
@@ -233,6 +234,7 @@ export class PatientsService {
       fullName: p.fullName,
       doctorName: p.doctor?.name ?? null,
       discharged: p.discharged,
+      dischargeOutcome: p.dischargeOutcome,
       claimStatus: p.insuranceClaims[0]?.status ?? null,
       linkedIpNumbers: p.linkedPatients.map((l) => l.ipNumber).filter((ip): ip is string => !!ip),
       room: p.room,
@@ -463,6 +465,7 @@ export class PatientsService {
           discharged: false,
           dischargeDate: null,
           dischargeRemarks: null,
+          dischargeOutcome: null,
           doctorProfileId: input.doctorId,
           ...(input.roomId ? { roomId: input.roomId } : {}),
           address: input.address,
@@ -506,7 +509,7 @@ export class PatientsService {
   }
 
   async discharge(id: string, input: DischargePatientInput, actor: AuthenticatedUser) {
-    await this.dischargeCore(id, input.remarks, { actorType: 'user', actorUserId: actor.id, actedBy: actor.loginId });
+    await this.dischargeCore(id, input.remarks, { actorType: 'user', actorUserId: actor.id, actedBy: actor.loginId }, undefined, input.outcome);
 
     await this.audit.log({
       actorUserId: actor.id,
@@ -543,6 +546,8 @@ export class PatientsService {
     remarks: string | undefined,
     actorFields: { actorType: 'user' | 'machine'; actorUserId?: string; actorMachineId?: string; actedBy: string },
     existingTx?: Prisma.TransactionClient,
+    /** Staff discharges record how the patient left; a bedside (machine) discharge has none. */
+    outcome?: DischargeOutcome,
   ) {
     const run = async (tx: Prisma.TransactionClient) => {
       const patient = await tx.patient.findUnique({ where: { id } });
@@ -552,7 +557,7 @@ export class PatientsService {
       const nextVersion = patient.version + 1;
       const result = await tx.patient.update({
         where: { id },
-        data: { discharged: true, dischargeDate: new Date(), dischargeRemarks: remarks, version: nextVersion },
+        data: { discharged: true, dischargeDate: new Date(), dischargeRemarks: remarks, dischargeOutcome: outcome ?? null, version: nextVersion },
       });
       await tx.patientHistory.create({
         data: {

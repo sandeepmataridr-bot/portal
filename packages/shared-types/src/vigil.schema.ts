@@ -53,6 +53,10 @@ export interface VigilSignalState {
   flags: string[];
   changedAt: number;
   points: VigilPoint[];
+  /** unit `code`: the name of each value 0, 1, 2 ... */
+  states?: string[];
+  /** decimals to show, when the signal fixes them (pH 2, flows 2 ...) */
+  decimals?: number;
 }
 
 export interface VigilMachineState {
@@ -73,6 +77,8 @@ export interface VigilMachineState {
   confirmedBy: string;
   alertPriority: VigilPriority | null;
   signals: VigilSignalState[];
+  /** How many of its values the superuser hides for this machine (display only; all are stored). */
+  hiddenSignals?: number;
 }
 
 export interface VigilAlertView {
@@ -213,4 +219,81 @@ export interface VigilIngestResult {
   rejected: number;
   /** One HL7 ACK per frame (MSA|AA or MSA|AE), in order. */
   acks: string[];
+}
+
+/**
+ * The machine's own alarms and logs (ECMO/EBOO HMI), pushed with the machine
+ * credential to POST /vigil/events. One-way: the portal stores and shows them
+ * and never acknowledges, silences or changes anything on the machine.
+ * `alarms` replaces the machine's list of active alarms (send [] when none);
+ * `log` entries are kept for good, a repeated entry is ignored and an alarm
+ * log entry's status (result) is updated.
+ */
+export const MACHINE_LOG_KINDS = ['treatment', 'alarm', 'system'] as const;
+export type MachineLogKind = (typeof MACHINE_LOG_KINDS)[number];
+
+export const machineAlarmSchema = z.object({
+  code: z.number().int().min(0).max(9999),
+  text: z.string().min(1).max(80),
+  /** 1 low, 2 medium, 3 high */
+  priority: z.number().int().min(1).max(3),
+  acknowledged: z.boolean(),
+  since: z.string().datetime(),
+});
+export type MachineAlarm = z.infer<typeof machineAlarmSchema>;
+
+export const machineLogEntrySchema = z.object({
+  kind: z.enum(MACHINE_LOG_KINDS),
+  at: z.string().datetime(),
+  event: z.string().min(1).max(120),
+  value: z.string().max(80).optional(),
+  /** system log: details; alarm log: the limit */
+  details: z.string().max(120).optional(),
+  /** system log: category */
+  category: z.string().max(40).optional(),
+  /** system log: result; alarm log: Active | Acknowledged | Cleared */
+  result: z.string().max(40).optional(),
+  /** alarm log: 1 low, 2 medium, 3 high */
+  priority: z.number().int().min(1).max(3).optional(),
+  /** alarm log: the machine's alarm code */
+  code: z.number().int().min(0).max(9999).optional(),
+});
+export type MachineLogEntryInput = z.infer<typeof machineLogEntrySchema>;
+
+export const machineEventsSchema = z
+  .object({
+    alarms: z.array(machineAlarmSchema).max(100).optional(),
+    silencedUntil: z.string().datetime().nullable().optional(),
+    log: z.array(machineLogEntrySchema).max(200).optional(),
+  })
+  .refine((v) => v.alarms !== undefined || (v.log?.length ?? 0) > 0, 'Send alarms, log entries or both');
+export type MachineEventsInput = z.infer<typeof machineEventsSchema>;
+
+export interface MachineAlarmsView {
+  alarms: MachineAlarm[];
+  silencedUntil: string | null;
+  /** when the machine last reported its alarms; null if never */
+  reportedAt: string | null;
+}
+
+export interface MachineLogEntryView extends MachineLogEntryInput {
+  id: string;
+}
+
+/**
+ * Which of a machine's values the portal shows (superuser). Display only: a
+ * hidden value is still stored, still in the patient log download, and still
+ * checked by the alarm rules.
+ */
+export const machineHiddenSignalsSchema = z.object({
+  hidden: z.array(z.string().min(1).max(40)).max(200),
+});
+export type MachineHiddenSignalsInput = z.infer<typeof machineHiddenSignalsSchema>;
+
+export interface MachineSignalOption {
+  code: string;
+  label: string;
+  unit: string;
+  kind: 'numeric' | 'setting' | 'lab' | 'status';
+  hidden: boolean;
 }

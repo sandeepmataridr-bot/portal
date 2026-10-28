@@ -39,7 +39,7 @@ export function fmtVal(v: number | null | undefined): string {
 export const fmtWindow = (s: number) => (s >= 3600 ? `${s / 3600} h` : `${s / 60} min`);
 
 /** How a signal's unit symbol (Vigil's rule-language symbol) reads on screen. */
-const UNIT_LABEL: Record<string, string> = { degC: '°C', flag: '', 'ug/mL': 'µg/mL' };
+const UNIT_LABEL: Record<string, string> = { degC: '°C', flag: '', code: '', pH: '', 'ug/mL': 'µg/mL' };
 export const fmtUnit = (unit: string) => UNIT_LABEL[unit] ?? unit;
 
 /** 0/1 device flags: alarms and states read OK / ALARM, settings ON / OFF. */
@@ -47,4 +47,12 @@ export function fmtFlag(value: number, kind: string): string {
   const on = value >= 0.5;
   if (kind === 'status') return on ? 'ALARM' : 'OK';
   return on ? 'ON' : 'OFF';
+}
+
+/** A signal's value as the screen shows it: a coded state by its name, a flag as ON/OFF or OK/ALARM, else with the signal's own decimals. */
+export function fmtSig(sig: { unit: string; kind: string; states?: string[]; decimals?: number }, value: number): string {
+  if (sig.unit === 'flag') return fmtFlag(value, sig.kind);
+  if (sig.unit === 'code') return sig.states?.[Math.round(value)] ?? String(value);
+  if (sig.decimals !== undefined && Number.isFinite(value)) return value.toFixed(sig.decimals);
+  return fmtVal(value);
 }

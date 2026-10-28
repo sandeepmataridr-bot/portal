@@ -1,4 +1,4 @@
-import { DOCTOR_CHANGE_REASON_LABEL, MACHINE_TYPE_LABEL, type DoctorChangeReason, type MachineType } from '@infusion/shared-types';
+import { DISCHARGE_OUTCOME_LABEL, DOCTOR_CHANGE_REASON_LABEL, MACHINE_TYPE_LABEL, type DischargeOutcome, type DoctorChangeReason, type MachineType } from '@infusion/shared-types';
 import type { PatientHistoryEntry } from './api';
 import { OUT_PATIENT } from '../rooms/api';
 
@@ -48,6 +48,19 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
         {s.diagnosis ? <p>Diagnosis: {String(s.diagnosis)}</p> : null}
         {s.doctorNotes ? <p>Notes: {String(s.doctorNotes)}</p> : null}
         {!s.diagnosis && !s.doctorNotes ? <p className="timeline-entry__nodata">(No summary details)</p> : null}
+      </div>
+    );
+  }
+
+  if (entry.action === 'DISCHARGE') {
+    const outcome = s.dischargeOutcome as DischargeOutcome | null | undefined;
+    return (
+      <div className="timeline-entry__body">
+        <p>
+          Outcome: <b>{outcome ? DISCHARGE_OUTCOME_LABEL[outcome] ?? outcome : 'not recorded'}</b>
+        </p>
+        {s.dischargeRemarks ? <p>Remarks: {String(s.dischargeRemarks)}</p> : null}
+        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
       </div>
     );
   }

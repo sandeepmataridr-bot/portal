@@ -226,6 +226,9 @@ importers:
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
+      fflate:
+        specifier: 0.8.2
+        version: 0.8.2
       helmet:
         specifier: ^8.0.0
         version: 8.3.0
@@ -2837,6 +2840,9 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  fflate@0.8.2:
+    resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
   file-type@22.1.0:
     resolution: {integrity: sha512-fbvf9u6jnHWr1EP6V8R99E9iLMhNLXgZkUzWBiPpJ5/89UJ/Atuxjn5YXR+XaZWo2hc2/8mGfTez+NDAgOcpLA==}
@@ -6726,6 +6732,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
       picomatch: 4.0.7
+
+  fflate@0.8.2: {}
 
   file-type@22.1.0(supports-color@8.1.1):
     dependencies:

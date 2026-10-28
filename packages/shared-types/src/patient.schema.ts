@@ -104,7 +104,18 @@ export const readmitPatientSchema = z.object({
 });
 export type ReadmitPatientInput = z.infer<typeof readmitPatientSchema>;
 
+/** How a patient left hospital; recorded at discharge (counted on the doctor's page). */
+export const DISCHARGE_OUTCOMES = ['RECOVERED', 'REFERRED', 'LAMA', 'DIED'] as const;
+export type DischargeOutcome = (typeof DISCHARGE_OUTCOMES)[number];
+export const DISCHARGE_OUTCOME_LABEL: Record<DischargeOutcome, string> = {
+  RECOVERED: 'Recovered',
+  REFERRED: 'Referred to another hospital',
+  LAMA: 'Left against medical advice (LAMA)',
+  DIED: 'Died',
+};
+
 export const dischargePatientSchema = z.object({
+  outcome: z.enum(DISCHARGE_OUTCOMES, { message: 'Choose the outcome' }),
   remarks: z.string().max(1000).optional(),
 });
 export type DischargePatientInput = z.infer<typeof dischargePatientSchema>;

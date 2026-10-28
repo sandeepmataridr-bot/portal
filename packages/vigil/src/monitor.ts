@@ -32,25 +32,38 @@ export const NUMERIC_STEP_S = 5.0;
 export const MAX_POINTS = 360;
 const LOG_MAX = 200;
 const LOG_SENT = 60;
-/** Display order: blood flow and pump, pressures, gas, temperatures, SvO2, EBOO ozone/UV/O2, heater unit, alarms. */
-const SIGNAL_ORDER = [
+/** Display order, in the HMI's groups: circuit, sweep gas, air vent, EBOO, heater unit, alarm flags, labs, alarm limits, vitals. */
+export const SIGNAL_ORDER = [
   'ECMO_BLOOD_FLOW',
   'ECMO_PUMP_SPEED',
+  'ECMO_PUMP_TARGET',
   'ECMO_P_VENOUS',
   'ECMO_P_PRE_OXY',
   'ECMO_P_POST_OXY',
   'ECMO_OXY_DELTA_P',
-  'ECMO_SWEEP_FLOW',
-  'ECMO_FIO2',
-  'BG_POST_OXY_PO2',
   'ECMO_BLOOD_TEMP',
   'ECMO_SVO2',
+  'ECMO_SAO2',
+  'ECMO_SWEEP_ON',
+  'ECMO_SWEEP_FLOW',
+  'ECMO_SWEEP_FLOW_ACTUAL',
+  'ECMO_FIO2',
+  'ECMO_FIO2_MEASURED',
+  'ECMO_GAS_SOURCE',
+  'ECMO_GAS_INLET_P',
+  'ECMO_GAS_SUPPLY_P',
+  'ECMO_AV_MODE',
+  'ECMO_AV_VALVE',
+  'ECMO_AV_DURATION',
+  'ECMO_AV_IN_FLOW',
+  'ECMO_AV_EX_FLOW',
   'EBOO_OZONE_CONC',
   'EBOO_OZONE_ON',
   'EBOO_UV_ON',
   'EBOO_O2_ON',
   'HU_WATER_TEMP',
   'HU_SET_TEMP',
+  'HU_MODE',
   'HU_WATER_FLOW',
   'HU_WATER_PRESSURE',
   'HU_WATER_LEVEL',
@@ -58,6 +71,27 @@ const SIGNAL_ORDER = [
   'ECMO_BUBBLE_ALARM',
   'ECMO_LEVEL_ALARM',
   'HU_LOW_WATER',
+  'BG_POST_OXY_PO2',
+  'LAB_HB',
+  'LAB_HCT',
+  'LAB_PH',
+  'LAB_PCO2',
+  'LAB_PO2',
+  'LAB_LACTATE',
+  'LAB_ALBUMIN',
+  'LAB_ACT',
+  'LIMIT_FLOW_LO',
+  'LIMIT_FLOW_HI',
+  'LIMIT_PUMP_HI',
+  'LIMIT_PV_LO',
+  'LIMIT_PA_HI',
+  'LIMIT_PIN_HI',
+  'LIMIT_DP_HI',
+  'LIMIT_TEMP_LO',
+  'LIMIT_TEMP_HI',
+  'LIMIT_SVO2_LO',
+  'LIMIT_FIO2_LO',
+  'LIMIT_GASP_LO',
   'VITAL_SPO2',
   'VITAL_PULSE_RATE',
   'VITAL_HEART_RATE',
@@ -165,6 +199,11 @@ export class MonitorHub {
       by: a.acknowledgedBy,
     });
     if (this.log.length > LOG_MAX) this.log.length = LOG_MAX;
+  }
+
+  /** The signal codes a device has sent so far (for the superuser's show/hide list). */
+  machineSignals(deviceId: string): string[] {
+    return [...(this.machines.get(deviceId)?.signals.keys() ?? [])];
   }
 
   snapshot(window: number, windows: number[], controller: VigilControllerState | null, mode: 'test' | 'live'): VigilState {
@@ -365,5 +404,7 @@ function signalView(code: string, s: SignalTrack, now: number, window: number): 
     flags: last.flags,
     changedAt: s.changedAt,
     points,
+    ...(sig.states ? { states: sig.states } : {}),
+    ...(sig.decimals !== undefined ? { decimals: sig.decimals } : {}),
   };
 }

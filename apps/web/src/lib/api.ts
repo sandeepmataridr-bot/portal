@@ -50,3 +50,23 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
   return response.json() as Promise<T>;
 }
+
+/** A file from the API (e.g. a ZIP), with the name the server gives it, saved by the browser. */
+export async function apiDownload(path: string, fallbackName: string): Promise<void> {
+  const headers = new Headers();
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  const response = await fetch(`${API_URL}${path}`, { headers, credentials: 'include' });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(response.status, body.code, body.message ?? `Download failed: ${response.status}`, body);
+  }
+  const name = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

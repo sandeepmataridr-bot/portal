@@ -7,11 +7,12 @@ import { AdminDashboard } from './AdminDashboard';
 
 type Tab = 'reception' | 'doctor' | 'pharmacy' | 'insurance' | 'admin';
 
+/** Same order as the login screen's quick sign-in: the order a patient meets them. */
 const TAB_LABEL: Record<Tab, string> = {
   reception: '🏥 Reception',
-  doctor: '👨‍⚕️ Doctor',
-  pharmacy: '💊 Pharmacy',
   insurance: '🛡️ Insurance',
+  pharmacy: '💊 Pharmacy',
+  doctor: '👨‍⚕️ Doctor',
   admin: '⚙️ Admin',
 };
 

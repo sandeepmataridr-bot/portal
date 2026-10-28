@@ -6,7 +6,9 @@ import {
   type VigilMachineState,
   type VigilSignalState,
 } from '@infusion/shared-types';
-import { GAP_S, MARK, PATIENT, fmtAgo, fmtDur, fmtFlag, fmtTime, fmtUnit, fmtVal } from './format';
+import { GAP_S, MARK, PATIENT, fmtAgo, fmtDur, fmtFlag, fmtSig, fmtTime, fmtUnit } from './format';
+import { MachineAlarms, MachineLog } from './MachineEvents';
+import { LIMIT_ROWS, signalGroup } from './sections';
 import { LineChart, type AlertBand } from './LineChart';
 import { alertBands, errorText, post, type Ready } from './actions';
 
@@ -29,6 +31,12 @@ export function MachineCard({ m, state, linkPatient = true }: { m: VigilMachineS
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const bands = m.encounterId ? alertBands(state, m.encounterId) : [];
+  // The machine's alarm limits go in one table; every other signal under its HMI section heading.
+  const limits = new Map(m.signals.filter((s) => s.code.startsWith('LIMIT_')).map((s) => [s.code, s]));
+  const shown = m.signals.filter((s) => !s.code.startsWith('LIMIT_'));
+  const grouped = new Set(shown.map((s) => signalGroup(s.code))).size > 1;
+  // ECMO and EBOO consoles report their own alarms and logs.
+  const reportsEvents = !!m.machineId && (m.kind === 'ECMO console' || m.kind === 'EBOO');
   // Silent for longer than the stale limit, whatever the association state
   // (an unconfirmed monitor that stops sending must still look stopped).
   const silent = m.status === 'no_data' || (m.status !== 'waiting' && m.age != null && m.age > VIGIL_STALE_S);
@@ -79,6 +87,7 @@ export function MachineCard({ m, state, linkPatient = true }: { m: VigilMachineS
           </span>
         )}
       </p>
+      {reportsEvents && <MachineAlarms machineId={m.machineId!} />}
       {m.status === 'unconfirmed' && m.associationId && (
         <div className="confirm-box">
           <span>Check at the bedside that this device is on this patient before rules start running.</span>
@@ -89,18 +98,25 @@ export function MachineCard({ m, state, linkPatient = true }: { m: VigilMachineS
         </div>
       )}
       <div className="m-signals">
-        {m.signals.map((sig) =>
-          sig.kind === 'numeric' ? (
-            <NumericSignal key={sig.code} sig={sig} stale={silent} bands={bands} state={state} />
-          ) : sig.kind === 'lab' ? (
-            <LabSignal key={sig.code} sig={sig} state={state} />
-          ) : sig.kind === 'status' ? (
-            <StatusSignal key={sig.code} sig={sig} stale={silent} state={state} />
-          ) : (
-            <SettingSignal key={sig.code} sig={sig} state={state} />
-          ),
-        )}
-      </div>
+        {shown.map((sig, i) => (
+          <Fragment key={sig.code}>
+            {grouped && (i === 0 || signalGroup(shown[i - 1].code) !== signalGroup(sig.code)) && (
+              <div className="m-section">{signalGroup(sig.code)}</div>
+            )}
+            {sig.kind === 'numeric' ? (
+              <NumericSignal sig={sig} stale={silent} bands={bands} state={state} />
+            ) : sig.kind === 'lab' ? (
+              <LabSignal sig={sig} state={state} />
+            ) : sig.kind === 'status' ? (
+              <StatusSignal sig={sig} stale={silent} state={state} />
+            ) : (
+              <SettingSignal sig={sig} state={state} />
+            )}
+          </Fragment>
+        ))}
+        {limits.size > 0 && <LimitsTable limits={limits} />}
+            </div>
+      {reportsEvents && <MachineLog machineId={m.machineId!} />}
     </article>
   );
 }
@@ -122,6 +138,7 @@ function MachineTitle({ m, open = false }: { m: VigilMachineState; open?: boolea
       <div className="m-kind">
         {m.kind} · {m.driver}
         {m.unmapped ? ` · ${m.unmapped} unmapped values` : ''}
+        {m.hiddenSignals ? ` · ${m.hiddenSignals} value${m.hiddenSignals === 1 ? '' : 's'} hidden by the superuser` : ''}
       </div>
     </>
   );
@@ -148,7 +165,7 @@ function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; st
       </div>
       <div className="sig-body">
         <div className="sig-value">
-          <span className="val">{fmtVal(sig.value)}</span>
+          <span className="val">{fmtSig(sig, sig.value)}</span>
           <span className="unit">{fmtUnit(sig.unit)}</span>
           <span className="sig-age">updated {fmtAgo(sig.age)}</span>
         </div>
@@ -193,7 +210,7 @@ function NumericSignal({ sig, stale, bands, state }: { sig: VigilSignalState; st
                   <Fragment key={p[0]}>
                     <tr>
                       <td>{fmtTime(p[0], state.simulatedClock)}</td>
-                      <td className="num">{fmtVal(p[1])}</td>
+                      <td className="num">{fmtSig(sig, p[1])}</td>
                       <td className="num">{p[2] < VIGIL_GOOD_SQI ? `${p[2].toFixed(1)} low` : p[2].toFixed(1)}</td>
                     </tr>
                     {older && p[0] - older[0] > GAP_S && (
@@ -237,7 +254,7 @@ function SettingSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) 
         <span className="sig-label">{sig.label}</span>
       </div>
       <div className="sig-compact">
-        <span className="val">{sig.unit === 'flag' ? fmtFlag(sig.value, sig.kind) : fmtVal(sig.value)}</span>
+        <span className="val">{fmtSig(sig, sig.value)}</span>
         <span className="unit">{fmtUnit(sig.unit)}</span>
         <span className="note">
           setting, unchanged for {fmtDur(state.now - sig.changedAt)} · updated {fmtAgo(sig.age)}
@@ -255,7 +272,7 @@ function LabSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) {
         <span className="sig-label">{sig.label}</span>
       </div>
       <div className="sig-compact">
-        <span className="val">{fmtVal(sig.value)}</span>
+        <span className="val">{fmtSig(sig, sig.value)}</span>
         <span className="unit">{fmtUnit(sig.unit)}</span>
         <span className="note">
           resulted {fmtTime(sig.t, state.simulatedClock)} ({fmtAgo(sig.age)})
@@ -273,12 +290,45 @@ function LabSignal({ sig, state }: { sig: VigilSignalState; state: Ready }) {
             {rows.map((p) => (
               <tr key={p[0]}>
                 <td>{fmtTime(p[0], state.simulatedClock)}</td>
-                <td className="num">{fmtVal(p[1])}</td>
+                <td className="num">{fmtSig(sig, p[1])}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+/** The machine's own alarm limits (set on the machine; shown only, never changed from here). */
+function LimitsTable({ limits }: { limits: Map<string, VigilSignalState> }) {
+  const cell = (code: string | null) => {
+    const sig = code ? limits.get(code) : undefined;
+    return sig ? `${fmtSig(sig, sig.value)} ${fmtUnit(sig.unit)}`.trim() : '—';
+  };
+  return (
+    <div className="sig">
+      <div className="m-section">
+        Alarm limits <span className="m-section-note">set on the machine</span>
+      </div>
+      <table className="vals limits">
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th className="num">Low</th>
+            <th className="num">High</th>
+          </tr>
+        </thead>
+        <tbody>
+          {LIMIT_ROWS.filter(([, lo, hi]) => (lo && limits.has(lo)) || (hi && limits.has(hi))).map(([label, lo, hi]) => (
+            <tr key={label}>
+              <td>{label}</td>
+              <td className="num">{cell(lo)}</td>
+              <td className="num">{cell(hi)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

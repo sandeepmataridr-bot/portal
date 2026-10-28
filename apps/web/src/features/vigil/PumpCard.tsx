@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MACHINE_SENDING_WINDOW_S } from '@infusion/shared-types';
 import type { LiveStatus } from '../infusions/api';
 import { PATIENT, fmtAgo, fmtDur } from './format';
+import { useNow } from './useNow';
 
 /**
  * An infusion pump on the patient monitor page, drawn like the Vigil machine
@@ -102,14 +102,4 @@ function Value({ label, value, unit, note, age, big = false }: { label: string; 
       </div>
     </div>
   );
-}
-
-/** Re-renders every second so "updated … ago" and the no-data state keep moving between polls. */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  return now;
 }

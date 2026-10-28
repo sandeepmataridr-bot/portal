@@ -122,6 +122,9 @@ model Machine {
   tailscaleIp String?
   status      MachineStatus @default(offline)
   lastSeenAt  DateTime?
+  /// Signals the superuser chose not to show for this machine (Vigil codes). Display only:
+  /// they are still stored, in the patient log download, and checked by the alarm rules.
+  hiddenSignals String[]   @default([])
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -207,6 +210,8 @@ model Patient {
   discharged       Boolean   @default(false)
   dischargeDate    DateTime?
   dischargeRemarks String?
+  /// RECOVERED | REFERRED | LAMA | DIED (DISCHARGE_OUTCOMES); null while admitted, and for discharges before outcomes were recorded
+  dischargeOutcome String?
 
   registeredById           String?
   registeredBy             User?   @relation("PatientRegisteredBy", fields: [registeredById], references: [id])
@@ -741,21 +746,69 @@ model VigilAuditRecord {
   @@map("vigil_audit_ledger")
 }
 
-// Device messages Vigil accepted in LIVE mode (HL7 PCD-01, exactly as the
-// machine sent them), so the central station's charts survive a server
-// restart: at start-up the last 6 h are replayed into the engine before any
-// patient association exists, which rebuilds the charts but can never raise
-// an alarm. One message is kept every 5 s per machine (the charts' own
-// resolution) plus every message in which an alarm flag or a setting
-// changed. Rows older than VIGIL_HISTORY_DAYS are deleted.
+// Every device message Vigil accepted in LIVE mode (HL7 PCD-01, exactly as the
+// machine sent it): the complete record of what each machine reported, for the
+// patient's log (superuser download) and so the charts survive a restart (the
+// last 6 h are replayed at start-up, before any patient association exists, so
+// old data can never raise an alarm). Messages are written in bundles of about
+// 10 s per machine; a bundle is large enough for PostgreSQL to compress it.
+// Rows older than VIGIL_HISTORY_DAYS (default 365: ECMO runs for months) are deleted.
 model VigilFrame {
   id          BigInt   @id @default(autoincrement())
   machineId   String
   machineCode String
   driver      String
-  frame       String
+  /// the messages, oldest first (array of HL7 texts)
+  frames      Json
+  count       Int
+  /// when the first and the last message of the bundle arrived
+  firstAt     DateTime
   receivedAt  DateTime @default(now())
 
   @@index([receivedAt])
+  @@index([machineId, receivedAt])
   @@map("vigil_frames")
+}
+
+// The machine's own active alarms (ECMO/EBOO HMI), as it last reported them:
+// one row per machine, replaced on every report. Shown read-only; the portal
+// never acknowledges or silences a machine alarm.
+model MachineAlarmState {
+  machineId     String    @id
+  /// [{ code, text, priority (1 low, 2 medium, 3 high), acknowledged, since }]
+  alarms        Json
+  silencedUntil DateTime?
+  reportedAt    DateTime
+
+  @@map("machine_alarm_state")
+}
+
+// The machine's own logs (treatment, alarm, system), exactly as it reported
+// them, kept for good. A machine reports an entry until the server has it; the
+// unique key makes repeats harmless. An alarm log entry is updated when its
+// status changes (active, acknowledged, cleared).
+model MachineLogEntry {
+  id         BigInt   @id @default(autoincrement())
+  machineId  String
+  /// treatment | alarm | system
+  kind       String
+  /// the machine's time of the entry
+  at         DateTime
+  event      String
+  value      String?
+  /// system log: details; alarm log: the limit
+  details    String?
+  /// system log: category
+  category   String?
+  /// system log: result; alarm log: Active | Acknowledged | Cleared
+  result     String?
+  /// alarm log: 1 low, 2 medium, 3 high
+  priority   Int?
+  /// alarm log: the machine's alarm code
+  code       Int?
+  receivedAt DateTime @default(now())
+
+  @@unique([machineId, kind, at, event])
+  @@index([machineId, at])
+  @@map("machine_log_entries")
 }

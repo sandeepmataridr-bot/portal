@@ -13,12 +13,13 @@ import { PasswordService } from './password.service.js';
  * nothing as "test". Their passwords are public by design, so they exist only
  * while it is safe (see TestLoginsService).
  */
+/** In the order a patient meets them (the login screen lists them so): reception first, super user last. */
 export const TEST_ACCOUNTS: readonly TestLogin[] = [
-  { role: 'admin', loginId: 'admin1', password: 'Admin1-0dh-2026' },
-  { role: 'doctor', loginId: 'doctor1', password: 'Doctor1-0dh-2026' },
   { role: 'reception', loginId: 'reception1', password: 'Reception1-0dh-2026' },
-  { role: 'pharmacy', loginId: 'pharmacy1', password: 'Pharmacy1-0dh-2026' },
   { role: 'insurance', loginId: 'insurance1', password: 'Insurance1-0dh-2026' },
+  { role: 'pharmacy', loginId: 'pharmacy1', password: 'Pharmacy1-0dh-2026' },
+  { role: 'doctor', loginId: 'doctor1', password: 'Doctor1-0dh-2026' },
+  { role: 'admin', loginId: 'admin1', password: 'Admin1-0dh-2026' },
   { role: 'superuser', loginId: 'superuser1', password: 'Superuser1-0dh-2026' },
 ];
 

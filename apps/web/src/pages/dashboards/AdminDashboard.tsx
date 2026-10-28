@@ -9,6 +9,7 @@ import { StatTile } from '../../components/StatTile';
 import { useFleetStatus, useCreateMachine } from '../../features/machines/api';
 import { AssignPatientModal } from '../../features/machines/AssignPatientModal';
 import { IssueCredentialModal } from '../../features/machines/IssueCredentialModal';
+import { MachineValuesModal } from '../../features/machines/MachineValuesModal';
 import { MachineMirrorView } from '../../features/machines/MachineMirrorView';
 import { VigilMirrorView } from '../../features/machines/VigilMirrorView';
 import { PatientLinksCard } from '../../features/patients/PatientLinksCard';
@@ -44,6 +45,8 @@ function FleetPanel() {
   const [issued, setIssued] = useState<{ machineId: string; machineCode: string; token: string } | null>(null);
   // Issuing a credential cuts the machine off until it gets the new one, so it needs CONFIRM typed first.
   const [confirmIssue, setConfirmIssue] = useState<MachineSummary | null>(null);
+  // Superuser: which of a machine's values the portal shows (display only; everything is stored).
+  const [valuesFor, setValuesFor] = useState<MachineSummary | null>(null);
   // Unassigning stops a machine's data being shown and checked for its patient: CONFIRM first too.
   const [confirmUnassign, setConfirmUnassign] = useState<MachineSummary | null>(null);
   const [assignModal, setAssignModal] = useState<{ machineId: string; machineCode: string } | null>(null);
@@ -153,6 +156,13 @@ function FleetPanel() {
                     <button type="button" className="link-button" onClick={() => setConfirmIssue(m)}>
                       🔑 Issue Credential
                     </button>{' '}
+                    {isVigilMachineType(m.machineType) && (
+                      <>
+                        <button type="button" className="link-button" onClick={() => setValuesFor(m)}>
+                          👁 Values
+                        </button>{' '}
+                      </>
+                    )}
                   </>
                 )}
                 {(m.machineType === 'INFUSION_PUMP' || isVigilMachineType(m.machineType)) && (
@@ -222,6 +232,8 @@ function FleetPanel() {
           <p>Only do this when the machine has really been taken off this patient. It is recorded in the patient&apos;s timeline.</p>
         </ConfirmTypedModal>
       )}
+
+      {valuesFor && <MachineValuesModal machineId={valuesFor.id} machineCode={valuesFor.machineCode} onClose={() => setValuesFor(null)} />}
 
       {confirmIssue && (
         <IssueCredentialModal

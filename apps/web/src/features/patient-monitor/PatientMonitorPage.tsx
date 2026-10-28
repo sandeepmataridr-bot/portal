@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { MACHINE_TYPE_LABEL, isVigilMachineType, type MachineType, type VigilState } from '@infusion/shared-types';
 import { AppShell } from '../../components/AppShell';
 import { useAuth } from '../../auth/AuthContext';
+import { DownloadPatientLog } from '../patients/DownloadPatientLog';
 import { useLiveStatus } from '../infusions/api';
 import { PumpCard } from '../vigil/PumpCard';
 import { usePatient } from '../patients/api';
@@ -73,6 +74,11 @@ export function PatientMonitorPage() {
           </span>
         )}
       </div>
+      {patient && user?.role === 'superuser' && (
+        <div className="download-log-row">
+          <DownloadPatientLog patientId={patient.id} patientName={patient.fullName} />
+        </div>
+      )}
 
       {isLoading && <p className="form-hint">Loading…</p>}
       {error && <p className="form-error">Could not load this patient.</p>}

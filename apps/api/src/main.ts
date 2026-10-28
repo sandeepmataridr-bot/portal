@@ -23,6 +23,8 @@ async function bootstrap() {
   app.enableCors({
     origin: config.get('CORS_ORIGINS', { infer: true }),
     credentials: true,
+    // the file name of downloads (patient log ZIP) when the site runs on another origin
+    exposedHeaders: ['Content-Disposition'],
   });
   app.useGlobalPipes(
     new ValidationPipe({

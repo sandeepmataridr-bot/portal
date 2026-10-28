@@ -19,8 +19,6 @@ import {
   MonitorHub,
   HISTORY_S,
   NUMERIC_STEP_S,
-  SIGNALS,
-  SignalKind,
   buildAck,
   describeMode,
   frames,
@@ -29,6 +27,9 @@ import {
   loadScenario,
   loadVigilConfig,
   parseOru,
+  parseTs,
+  SIGNALS,
+  SIGNAL_ORDER,
   setupScenario,
   type CompiledRule,
   type Scenario,
@@ -45,10 +46,13 @@ import {
   type VigilIngestResult,
   type VigilMode,
   type VigilState,
+  type MachineHiddenSignalsInput,
+  type MachineSignalOption,
 } from '@infusion/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/types.js';
+import { signalsFor } from './machine-signals.js';
 import { VigilAuditService } from './vigil-audit.service.js';
 
 /** How often LIVE mode re-reads patient↔machine assignments (tag/untag/confirm elsewhere). */
@@ -57,8 +61,12 @@ const ASSOCIATION_SYNC_MS = 10_000;
 const PLAYBACK_MS = 100;
 /** How often LIVE mode deletes stored device messages older than VIGIL_HISTORY_DAYS. */
 const HISTORY_PRUNE_MS = 6 * 3600_000;
-/** Stored messages replayed per database read at start-up. */
-const REPLAY_BATCH = 2000;
+/** Stored bundles replayed per database read at start-up. */
+const REPLAY_BATCH = 200;
+/** Device messages are written to the database in bundles of about this long per machine (or BUNDLE_MAX messages). */
+const BUNDLE_MS = 10_000;
+const BUNDLE_MAX = 120;
+const BUNDLE_CHECK_MS = 2_000;
 
 interface TestRun {
   scenario: Scenario;
@@ -106,9 +114,12 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   private syncTimer: NodeJS.Timeout | null = null;
   private pruneTimer: NodeJS.Timeout | null = null;
   private syncing: Promise<void> | null = null;
-  /** Per machine code: device time of the last stored message, and the last alarm-flag/setting values seen. */
-  private readonly stored = new Map<string, { t: number; flags: Map<string, number> }>();
+  private flushTimer: NodeJS.Timeout | null = null;
+  /** Accepted device messages not yet written, per machine and driver (see queueForStorage). */
+  private readonly pending = new Map<string, { machineId: string; machineCode: string; driver: string; frames: string[]; firstAt: Date }>();
   private readonly machineIds = new Map<string, string>(); // machineCode -> machine id
+  /** machineCode -> signals the superuser hides for it (display only) */
+  private readonly hidden = new Map<string, Set<string>>();
   private readonly patientLabels = new Map<string, string>(); // patient id -> "Name (IP no.)"
 
   constructor(
@@ -140,6 +151,7 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.stopTimers();
+    await this.flushStorage(true);         // the last seconds of device messages
     if (this.engine) this.ledger.append(this.mode, 'run_end', { mode: this.mode, stopped: true, stats: this.stats() });
     await this.ledger.flush();
   }
@@ -149,8 +161,8 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   }
 
   private stopTimers(): void {
-    for (const t of [this.playbackTimer, this.tickTimer, this.syncTimer, this.pruneTimer]) if (t) clearInterval(t);
-    this.playbackTimer = this.tickTimer = this.syncTimer = this.pruneTimer = null;
+    for (const t of [this.playbackTimer, this.tickTimer, this.syncTimer, this.pruneTimer, this.flushTimer]) if (t) clearInterval(t);
+    this.playbackTimer = this.tickTimer = this.syncTimer = this.pruneTimer = this.flushTimer = null;
   }
 
   private stats(): Record<string, number> {
@@ -306,27 +318,48 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
       this.pruneHistory().catch((e: unknown) => this.logger.error(`history clean-up failed: ${e instanceof Error ? e.message : e}`));
     void prune();
     this.pruneTimer = setInterval(prune, HISTORY_PRUNE_MS);
+    this.flushTimer = setInterval(() => void this.flushStorage(false), BUNDLE_CHECK_MS);
   }
 
-  /** Replays the stored device messages of the last HISTORY_S (the charts' span) into a new LIVE engine. */
+  /**
+   * Replays the stored device messages of the last HISTORY_S (the charts' span) into a new LIVE
+   * engine. The charts keep one point every NUMERIC_STEP_S, so a message is replayed when it is
+   * that much newer than the last one replayed for its machine, when it carries a lab result,
+   * and at the end of every bundle (so settings end up as they were): a few hours of
+   * once-a-second messages load in seconds.
+   */
   private async replayHistory(engine: VigilEngine): Promise<void> {
     const since = new Date(Date.now() - HISTORY_S * 1000);
+    const lastReplayed = new Map<string, number>();
     let cursor: bigint | null = null;
     let count = 0;
     for (;;) {
-      const rows: { id: bigint; machineCode: string; driver: string; frame: string }[] = await this.prisma.vigilFrame.findMany({
+      const rows: { id: bigint; machineCode: string; driver: string; frames: unknown }[] = await this.prisma.vigilFrame.findMany({
         where: { receivedAt: { gte: since }, ...(cursor === null ? {} : { id: { gt: cursor } }) },
         orderBy: { id: 'asc' },
         take: REPLAY_BATCH,
-        select: { id: true, machineCode: true, driver: true, frame: true },
+        select: { id: true, machineCode: true, driver: true, frames: true },
       });
       for (const r of rows) {
-        try {
-          this.remember(r.machineCode, engine.receive(r.driver, r.frame, { deviceId: r.machineCode }));
-          count += 1;
-        } catch (e) {
-          this.logger.warn(`stored message ${r.id} not replayed: ${e instanceof Error ? e.message : e}`);
-        }
+        const frames = Array.isArray(r.frames) ? (r.frames as string[]) : [];
+        frames.forEach((frame, i) => {
+          let t = NaN;
+          try {
+            t = parseTs(frame.split('|')[6] ?? '');
+          } catch {
+            // no usable MSH-7: replay it
+          }
+          const prev = lastReplayed.get(r.machineCode);
+          const due = !Number.isFinite(t) || prev === undefined || t - prev >= NUMERIC_STEP_S - 0.5;
+          if (!due && i < frames.length - 1 && !frame.includes('LAB_')) return;
+          try {
+            engine.receive(r.driver, frame, { deviceId: r.machineCode });
+            if (Number.isFinite(t)) lastReplayed.set(r.machineCode, t);
+            count += 1;
+          } catch (e) {
+            this.logger.warn(`stored message in bundle ${r.id} not replayed: ${e instanceof Error ? e.message : e}`);
+          }
+        });
       }
       if (rows.length < REPLAY_BATCH) break;
       cursor = rows[rows.length - 1].id;
@@ -337,29 +370,40 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   private async pruneHistory(): Promise<void> {
     const before = new Date(Date.now() - this.cfg!.historyDays * 86_400_000);
     const { count } = await this.prisma.vigilFrame.deleteMany({ where: { receivedAt: { lt: before } } });
-    if (count) this.logger.log(`history: ${count} device messages older than ${this.cfg!.historyDays} days deleted`);
+    if (count) this.logger.log(`history: ${count} bundles of device messages older than ${this.cfg!.historyDays} days deleted`);
   }
 
-  /**
-   * Whether an accepted message is stored: one every NUMERIC_STEP_S per machine (the charts'
-   * resolution), and every one in which an alarm flag or a setting changed, so no change is lost.
-   * Also records what was seen, for the next decision.
-   */
-  private remember(machineCode: string, envs: { validTime: number; payload: { code: string; value: number } }[]): boolean {
-    const m = this.stored.get(machineCode) ?? { t: -Infinity, flags: new Map<string, number>() };
-    this.stored.set(machineCode, m);
-    let store = false;
-    let newest = -Infinity;
-    for (const env of envs) {
-      newest = Math.max(newest, env.validTime);
-      const sig = SIGNALS[env.payload.code];
-      if (!sig || (sig.kind !== SignalKind.STATUS && sig.kind !== SignalKind.SETTING)) continue;
-      if (m.flags.get(env.payload.code) !== env.payload.value) store = true;
-      m.flags.set(env.payload.code, env.payload.value);
-    }
-    if (newest - m.t >= NUMERIC_STEP_S) store = true;
-    if (store && newest > -Infinity) m.t = Math.max(m.t, newest);
-    return store;
+  /** Every accepted message is stored: collected per machine and written as one bundle about every BUNDLE_MS. */
+  private queueForStorage(machineId: string, machineCode: string, driver: string, frames: string[]): void {
+    if (!frames.length) return;
+    const key = `${machineId}\u0000${driver}`;
+    const p = this.pending.get(key) ?? { machineId, machineCode, driver, frames: [], firstAt: new Date() };
+    p.frames.push(...frames);
+    this.pending.set(key, p);
+    if (p.frames.length >= BUNDLE_MAX) void this.flushStorage(false);
+  }
+
+  /** Writes the bundles that are due (all of them when `all`, at shutdown). A failed write is logged; the engine keeps its data. */
+  private async flushStorage(all: boolean): Promise<void> {
+    const now = Date.now();
+    const due = [...this.pending.entries()].filter(
+      ([, p]) => all || p.frames.length >= BUNDLE_MAX || now - p.firstAt.getTime() >= BUNDLE_MS,
+    );
+    if (!due.length) return;
+    for (const [key] of due) this.pending.delete(key);
+    await this.prisma.vigilFrame
+      .createMany({
+        data: due.map(([, p]) => ({
+          machineId: p.machineId,
+          machineCode: p.machineCode,
+          driver: p.driver,
+          frames: p.frames,
+          count: p.frames.length,
+          firstAt: p.firstAt,
+          receivedAt: new Date(now),
+        })),
+      })
+      .catch((e: unknown) => this.logger.error(`device messages not stored: ${e instanceof Error ? e.message : e}`));
   }
 
   /** Coalesces concurrent sync requests into one database read. */
@@ -379,9 +423,16 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
     const engine = this.engine;
     if (!engine || !engine.liveMode) return;
     const vigilTypes = { in: [...VIGIL_MACHINE_TYPES] };
-    const machines = await this.prisma.machine.findMany({ where: { machineType: vigilTypes }, select: { id: true, machineCode: true } });
+    const machines = await this.prisma.machine.findMany({
+      where: { machineType: vigilTypes },
+      select: { id: true, machineCode: true, hiddenSignals: true },
+    });
     this.machineIds.clear();
-    for (const m of machines) this.machineIds.set(m.machineCode, m.id);
+    this.hidden.clear();
+    for (const m of machines) {
+      this.machineIds.set(m.machineCode, m.id);
+      if (m.hiddenSignals.length) this.hidden.set(m.machineCode, new Set(m.hiddenSignals));
+    }
     const active = await this.prisma.patientMachineAssignment.findMany({
       where: { unassignedAt: null, machine: { machineType: vigilTypes } },
       include: {
@@ -439,25 +490,21 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
     if (!this.machineIds.has(machine.machineCode)) await this.syncAssociations();
 
     const acks: string[] = [];
-    const keep: string[] = [];
+    const acceptedFrames: string[] = [];
     let accepted = 0;
     for (const frame of input.frames) {
       try {
         parseOru(frame); // reject malformed messages with an AE before they reach the engine
-        const envs = this.engine.receive(input.driver, frame, { deviceId: machine.machineCode });
-        if (this.remember(machine.machineCode, envs)) keep.push(frame);
+        this.engine.receive(input.driver, frame, { deviceId: machine.machineCode });
+        acceptedFrames.push(frame);
         acks.push(buildAck(frame, 'AA'));
         accepted += 1;
       } catch (e) {
         acks.push(buildAck(frame, 'AE', e instanceof Error ? e.message : String(e)));
       }
     }
-    if (keep.length) {
-      // Kept for the charts after a restart. A failed write never refuses data the engine already has.
-      await this.prisma.vigilFrame
-        .createMany({ data: keep.map((frame) => ({ machineId, machineCode: machine.machineCode, driver: input.driver, frame })) })
-        .catch((e: unknown) => this.logger.error(`device messages not stored: ${e instanceof Error ? e.message : e}`));
-    }
+    // Every accepted message goes to the database (the patient's complete record), in bundles.
+    this.queueForStorage(machineId, machine.machineCode, input.driver, acceptedFrames);
     return { accepted, rejected: input.frames.length - accepted, acks };
   }
 
@@ -521,7 +568,55 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
     if (!this.engine || !this.hub) {
       return { ready: false, mode: this.mode, controller, windows: [...VIGIL_WINDOWS], error: this.configError };
     }
-    return this.hub.snapshot(window, [...VIGIL_WINDOWS], controller, this.mode);
+    const snap = this.hub.snapshot(window, [...VIGIL_WINDOWS], controller, this.mode);
+    if (!snap.ready || !this.hidden.size) return snap;
+    // Values the superuser hides for a machine are left out of every screen (they are still stored and checked).
+    return {
+      ...snap,
+      machines: snap.machines.map((m) => {
+        const hide = this.hidden.get(m.deviceId);
+        if (!hide) return m;
+        const signals = m.signals.filter((g) => !hide.has(g.code));
+        return { ...m, signals, hiddenSignals: m.signals.length - signals.length };
+      }),
+    };
+  }
+
+  /** A machine's values with whether each is shown: every value its type can report, plus any other it has sent. */
+  async signalOptions(machineId: string): Promise<MachineSignalOption[]> {
+    const machine = await this.prisma.machine.findUnique({ where: { id: machineId }, select: { machineCode: true, machineType: true, hiddenSignals: true } });
+    if (!machine) throw new NotFoundException('Machine not found');
+    if (!isVigilMachineType(machine.machineType)) throw new BadRequestException('Only monitoring machines (ECMO, EBOO, monitors) have values to show or hide');
+    const seen = this.hub?.machineSignals(machine.machineCode) ?? [];
+    const codes = [...new Set([...signalsFor(machine.machineType), ...seen])].filter((c) => c in SIGNALS);
+    const order = (c: string) => { const i = SIGNAL_ORDER.indexOf(c); return i < 0 ? SIGNAL_ORDER.length : i; };
+    codes.sort((a, b) => order(a) - order(b));
+    const hidden = new Set(machine.hiddenSignals);
+    return codes.map((code) => ({ code, label: SIGNALS[code].description, unit: SIGNALS[code].unit, kind: SIGNALS[code].kind, hidden: hidden.has(code) }));
+  }
+
+  /** Superuser: which of a machine's values the portal shows. Display only; recorded in the audit log. */
+  async setHiddenSignals(machineId: string, input: MachineHiddenSignalsInput, actor: AuthenticatedUser): Promise<MachineSignalOption[]> {
+    // RolesGuard lets admin through every route: this choice is the superuser's alone.
+    if (actor.role !== 'superuser') throw new ForbiddenException('Which values are shown is set by the superuser');
+    const machine = await this.prisma.machine.findUnique({ where: { id: machineId }, select: { machineCode: true, hiddenSignals: true } });
+    if (!machine) throw new NotFoundException('Machine not found');
+    const unknown = input.hidden.filter((c) => !(c in SIGNALS));
+    if (unknown.length) throw new BadRequestException(`Unknown values: ${unknown.join(', ')}`);
+    const hidden = [...new Set(input.hidden)];
+    await this.prisma.machine.update({ where: { id: machineId }, data: { hiddenSignals: hidden } });
+    if (hidden.length) this.hidden.set(machine.machineCode, new Set(hidden));
+    else this.hidden.delete(machine.machineCode);
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'MACHINE_VALUES_SHOWN_CHANGED',
+      entityTable: 'machines',
+      entityId: machineId,
+      before: { hidden: machine.hiddenSignals },
+      after: { hidden },
+    });
+    return this.signalOptions(machineId);
   }
 
   verifyAudit() {

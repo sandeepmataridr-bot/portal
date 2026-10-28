@@ -32,7 +32,7 @@ export interface VigilConfig {
   autostart: boolean;
   // LIVE only
   codeMaps: Record<string, Record<string, string>>;
-  /** days of accepted device messages kept in the database (VIGIL_HISTORY_DAYS, default 30) */
+  /** days of accepted device messages kept in the database (VIGIL_HISTORY_DAYS, default 365: ECMO runs for months) */
   historyDays: number;
 }
 
@@ -107,7 +107,7 @@ export function loadVigilConfig(env: Record<string, string | undefined> = proces
       problems.push('VIGIL_HL7_CODES must be a JSON object of "<coding system>:<code>": "<SIGNAL>"');
     }
   }
-  const historyDays = get('VIGIL_HISTORY_DAYS') ? Number(get('VIGIL_HISTORY_DAYS')) : 30;
+  const historyDays = get('VIGIL_HISTORY_DAYS') ? Number(get('VIGIL_HISTORY_DAYS')) : 365;
   if (!(historyDays > 0)) problems.push('VIGIL_HISTORY_DAYS must be a positive number of days');
   if (problems.length) {
     throw new VigilConfigError(`LIVE mode configuration is incomplete:\n  - ${problems.join('\n  - ')}`);

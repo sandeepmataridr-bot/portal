@@ -24,6 +24,12 @@ export const UNITS: Record<string, string> = {
   brpm: '{breaths}/min',
   /** ozone concentration, micrograms per millilitre (= mg/L) */
   'ug/mL': 'ug/mL',
+  'g/dL': 'g/dL',
+  'mmol/L': 'mmol/L',
+  s: 's',
+  pH: '[pH]',
+  /** a coded state: 0, 1, 2 ... named by the signal's `states` */
+  code: '{code}',
 };
 
 export const TIME_UNITS: Record<string, number> = { ms: 0.001, s: 1.0, min: 60.0, h: 3600.0 };
@@ -85,6 +91,10 @@ export interface Signal {
   /** jump size treated as flush/step artifact */
   stepArtifact: number | null;
   ucum: string;
+  /** unit `code`: the name of each value 0, 1, 2 ... (e.g. gas source) */
+  states?: string[];
+  /** decimals to show (default: by size) */
+  decimals?: number;
 }
 
 function signal(
@@ -94,8 +104,9 @@ function signal(
   plausible: [number, number],
   description: string,
   stepArtifact: number | null = null,
+  extra: { states?: string[]; decimals?: number } = {},
 ): Signal {
-  return { name, unit, kind, plausible, description, stepArtifact, ucum: UNITS[unit] };
+  return { name, unit, kind, plausible, description, stepArtifact, ucum: UNITS[unit], ...extra };
 }
 
 export const SIGNALS: Record<string, Signal> = Object.fromEntries(
@@ -116,11 +127,48 @@ export const SIGNALS: Record<string, Signal> = Object.fromEntries(
     signal('ECMO_P_VENOUS', 'mmHg', SignalKind.NUMERIC, [-300.0, 100.0], 'Venous (drainage) pressure, before the pump'),
     signal('ECMO_P_PRE_OXY', 'mmHg', SignalKind.NUMERIC, [-50.0, 700.0], 'Pressure before the oxygenator'),
     signal('ECMO_P_POST_OXY', 'mmHg', SignalKind.NUMERIC, [-50.0, 700.0], 'Pressure after the oxygenator (return)'),
-    signal('ECMO_FIO2', '%', SignalKind.SETTING, [21.0, 100.0], 'Sweep gas oxygen fraction (FiO2)'),
+    signal('ECMO_FIO2', '%', SignalKind.SETTING, [21.0, 100.0], 'Sweep gas oxygen fraction (FiO2)', null, { decimals: 0 }),
     signal('ECMO_BLOOD_TEMP', 'degC', SignalKind.NUMERIC, [15.0, 45.0], 'Blood temperature'),
     signal('ECMO_BUBBLE_ALARM', 'flag', SignalKind.STATUS, [0.0, 1.0], 'Air bubble detector'),
     signal('ECMO_LEVEL_ALARM', 'flag', SignalKind.STATUS, [0.0, 1.0], 'Level sensor alarm'),
     signal('ECMO_SVO2', '%', SignalKind.NUMERIC, [0.0, 100.0], 'Venous oxygen saturation (SvO₂)'),
+    signal('ECMO_SAO2', '%', SignalKind.NUMERIC, [0.0, 100.0], 'Arterial oxygen saturation (SpO₂)'),
+    // ECMO console: what the HMI shows besides the main readings. Settings are the machine's own,
+    // shown read-only: the portal never writes anything back to a machine.
+    signal('ECMO_PUMP_TARGET', 'rpm', SignalKind.SETTING, [0.0, 6000.0], 'Pump target speed', null, { decimals: 0 }),
+    signal('ECMO_SWEEP_ON', 'flag', SignalKind.SETTING, [0.0, 1.0], 'Sweep gas'),
+    signal('ECMO_SWEEP_FLOW_ACTUAL', 'L/min', SignalKind.NUMERIC, [0.0, 15.0], 'Sweep gas flow, measured'),
+    signal('ECMO_FIO2_MEASURED', '%', SignalKind.NUMERIC, [0.0, 100.0], 'FiO2, measured'),
+    signal('ECMO_GAS_SOURCE', 'code', SignalKind.SETTING, [0.0, 2.0], 'Gas source', null, { states: ['Oxygen', 'Medical air', 'O2 + air'] }),
+    signal('ECMO_GAS_INLET_P', 'bar', SignalKind.NUMERIC, [0.0, 10.0], 'Gas inlet pressure (blender out)', null, { decimals: 1 }),
+    signal('ECMO_GAS_SUPPLY_P', 'bar', SignalKind.NUMERIC, [0.0, 10.0], 'Gas supply pressure', null, { decimals: 1 }),
+    signal('ECMO_AV_MODE', 'code', SignalKind.SETTING, [0.0, 1.0], 'Air vent mode', null, { states: ['Manual', 'Auto'] }),
+    signal('ECMO_AV_VALVE', 'code', SignalKind.SETTING, [0.0, 1.0], 'Air vent valve', null, { states: ['Closed', 'Open'] }),
+    signal('ECMO_AV_DURATION', 's', SignalKind.SETTING, [0.0, 600.0], 'Air vent duration', null, { decimals: 0 }),
+    signal('ECMO_AV_IN_FLOW', 'L/min', SignalKind.NUMERIC, [0.0, 15.0], 'Sweep gas inlet flow (air vent)'),
+    signal('ECMO_AV_EX_FLOW', 'L/min', SignalKind.NUMERIC, [0.0, 15.0], 'Sweep gas exhaust flow (air vent)'),
+    // Lab results typed in on the HMI (Parameters page)
+    signal('LAB_HB', 'g/dL', SignalKind.LAB, [0.0, 25.0], 'Hemoglobin (Hb)', null, { decimals: 1 }),
+    signal('LAB_HCT', '%', SignalKind.LAB, [0.0, 80.0], 'Hematocrit (Hct)', null, { decimals: 1 }),
+    signal('LAB_PH', 'pH', SignalKind.LAB, [6.5, 8.0], 'Arterial pH', null, { decimals: 2 }),
+    signal('LAB_PCO2', 'mmHg', SignalKind.LAB, [0.0, 150.0], 'pCO2', null, { decimals: 1 }),
+    signal('LAB_PO2', 'mmHg', SignalKind.LAB, [0.0, 700.0], 'pO2', null, { decimals: 1 }),
+    signal('LAB_LACTATE', 'mmol/L', SignalKind.LAB, [0.0, 30.0], 'Lactate', null, { decimals: 1 }),
+    signal('LAB_ALBUMIN', 'g/dL', SignalKind.LAB, [0.0, 10.0], 'Albumin', null, { decimals: 1 }),
+    signal('LAB_ACT', 's', SignalKind.LAB, [0.0, 999.0], 'Activated clotting time (ACT)', null, { decimals: 0 }),
+    // The machine's own alarm limits (HMI Alarm limits page), read-only
+    signal('LIMIT_FLOW_LO', 'L/min', SignalKind.SETTING, [0.0, 10.0], 'Blood flow low limit', null, { decimals: 2 }),
+    signal('LIMIT_FLOW_HI', 'L/min', SignalKind.SETTING, [0.0, 10.0], 'Blood flow high limit', null, { decimals: 2 }),
+    signal('LIMIT_PUMP_HI', 'rpm', SignalKind.SETTING, [0.0, 6000.0], 'Pump speed high limit', null, { decimals: 0 }),
+    signal('LIMIT_PV_LO', 'mmHg', SignalKind.SETTING, [-200.0, 100.0], 'Venous pressure low limit', null, { decimals: 1 }),
+    signal('LIMIT_PA_HI', 'mmHg', SignalKind.SETTING, [-100.0, 400.0], 'Arterial pressure high limit', null, { decimals: 1 }),
+    signal('LIMIT_PIN_HI', 'mmHg', SignalKind.SETTING, [-100.0, 400.0], 'Inlet pressure high limit', null, { decimals: 1 }),
+    signal('LIMIT_DP_HI', 'mmHg', SignalKind.SETTING, [0.0, 300.0], 'Pressure drop high limit', null, { decimals: 1 }),
+    signal('LIMIT_TEMP_LO', 'degC', SignalKind.SETTING, [20.0, 45.0], 'Arterial temperature low limit', null, { decimals: 1 }),
+    signal('LIMIT_TEMP_HI', 'degC', SignalKind.SETTING, [20.0, 45.0], 'Arterial temperature high limit', null, { decimals: 1 }),
+    signal('LIMIT_SVO2_LO', '%', SignalKind.SETTING, [0.0, 100.0], 'SvO2 low limit', null, { decimals: 1 }),
+    signal('LIMIT_FIO2_LO', '%', SignalKind.SETTING, [21.0, 100.0], 'FiO2 low limit', null, { decimals: 0 }),
+    signal('LIMIT_GASP_LO', 'bar', SignalKind.SETTING, [0.0, 10.0], 'Gas supply pressure low limit', null, { decimals: 1 }),
     // EBOO (its pump and blood flow use ECMO_PUMP_SPEED and ECMO_BLOOD_FLOW)
     signal('EBOO_OZONE_CONC', 'ug/mL', SignalKind.NUMERIC, [0.0, 100.0], 'Ozone concentration'),
     signal('EBOO_OZONE_ON', 'flag', SignalKind.SETTING, [0.0, 1.0], 'Ozone generator on'),
@@ -135,6 +183,7 @@ export const SIGNALS: Record<string, Signal> = Object.fromEntries(
     signal('HU_WATER_PRESSURE', 'bar', SignalKind.NUMERIC, [0.0, 3.0], 'Heater unit water pressure'),
     signal('HU_GT38_ON', 'flag', SignalKind.SETTING, [0.0, 1.0], 'Heater unit above-38 °C mode'),
     signal('HU_LOW_WATER', 'flag', SignalKind.STATUS, [0.0, 1.0], 'Heater unit low-water alarm'),
+    signal('HU_MODE', 'code', SignalKind.SETTING, [0.0, 3.0], 'Heater unit mode', null, { states: ['Standby', 'Prime', 'Run', 'System test'] }),
     // Patient monitors (SpO₂, temperature, multi-parameter)
     signal('VITAL_SPO2', '%', SignalKind.NUMERIC, [0.0, 100.0], 'Oxygen saturation (SpO₂)'),
     signal('VITAL_PULSE_RATE', 'bpm', SignalKind.NUMERIC, [0.0, 350.0], 'Pulse rate (oximeter)'),

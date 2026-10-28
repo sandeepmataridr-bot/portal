@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  DischargeOutcome,
   RegisterPatientInput,
   ReadmitPatientInput,
   DischargePatientInput,
@@ -17,6 +18,8 @@ export interface PatientSummary {
   fullName: string;
   doctorName: string | null;
   discharged: boolean;
+  /** How they left (RECOVERED, REFERRED, LAMA, DIED); null while admitted or for older discharges. */
+  dischargeOutcome: DischargeOutcome | null;
   claimStatus: string | null;
   /** IP numbers of duplicate records linked to this one (searching them finds this patient). */
   linkedIpNumbers?: string[];
@@ -65,6 +68,7 @@ export interface PatientDetail {
   discharged: boolean;
   dischargeDate: string | null;
   dischargeRemarks: string | null;
+  dischargeOutcome: DischargeOutcome | null;
   doctor: { id: string; name: string } | null;
   history: PatientHistoryEntry[];
   insuranceClaims: Array<{ id: string; status: string; remarks: string | null }>;

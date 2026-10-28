@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { MACHINE_TYPE_LABEL, type MachineType } from '@infusion/shared-types';
+import { DISCHARGE_OUTCOME_LABEL, MACHINE_TYPE_LABEL, type MachineType } from '@infusion/shared-types';
 import { Modal } from '../../components/Modal';
 import { useAuth } from '../../auth/AuthContext';
 import { usePatient } from './api';
 import { ChangeDoctorForm } from './ChangeDoctorForm';
+import { DownloadPatientLog } from './DownloadPatientLog';
 import { EditIdentityForm } from './EditIdentityForm';
 import { MoveRoomForm } from './MoveRoomForm';
 import { PatientTimeline } from './PatientTimeline';
@@ -149,6 +150,12 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
             </div>
           </div>
 
+          {user?.role === 'superuser' && (
+            <div className="download-log-row">
+              <DownloadPatientLog patientId={patient.id} patientName={patient.fullName} />
+            </div>
+          )}
+
           {movingRoom && (
             <div className="info-card">
               <h4 className="form-section-title">✏️ Move to another room</h4>
@@ -183,6 +190,10 @@ export function PatientDetailsModal({ patientId, onClose }: { patientId: string;
                 <div>
                   <b>Discharge Date</b>
                   <p>{new Date(patient.dischargeDate).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <b>Outcome</b>
+                  <p>{patient.dischargeOutcome ? DISCHARGE_OUTCOME_LABEL[patient.dischargeOutcome] : '—'}</p>
                 </div>
                 <div>
                   <b>Remarks</b>

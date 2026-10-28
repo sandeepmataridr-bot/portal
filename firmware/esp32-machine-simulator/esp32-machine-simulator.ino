@@ -69,7 +69,8 @@
 #include "secrets.h"  // copy secrets.example.h to secrets.h
 
 // ---------------- Settings ----------------
-const size_t QUEUE_LEN = 120;          // per machine: 2 minutes of messages kept while offline
+const size_t QUEUE_LEN = 120;          // per machine: 2 minutes of messages kept while offline (with PSRAM)
+const size_t QUEUE_LEN_SMALL = 30;     // without PSRAM: 30 s
 const size_t BATCH_MAX = 20;           // messages per request when catching up
 const uint32_t STATUS_MS = 10000;      // status lines on the Serial Monitor
 // Requests run in parallel, each sender task with its own HTTPS connection. One request to a
@@ -80,15 +81,24 @@ const int SENDERS = 3;
 const uint32_t SENDER_STACK = 12288;   // bytes per sender task (TLS handshakes need room)
 
 // ---------------- Readings ----------------
+const uint8_t SETTINGS_EVERY = 10;      // settings and alarm limits: every 10 s, and at once when they change
+const uint8_t ON_CHANGE = 255;         // lab results: only when a new one is entered
+
 struct Field {
   const char *code;   // Vigil signal name, sent as "<code>^<code>^0DH"
   const char *ucum;   // unit, exactly as the server expects it
   uint8_t decimals;
+  uint8_t every;      // 0: in every message (live readings); N: every N s or when it changes; ON_CHANGE
 };
 
-// ECMO console + heater unit (index names keep the simulation readable)
+// ECMO console + heater unit: every clinical value of the ECMO HMI (index names keep the simulation readable)
 enum { E_FLOW, E_RPM, E_PV, E_PRE, E_POST, E_DP, E_SWEEP, E_FIO2, E_TEMP, E_BUBBLE, E_LEVEL, E_SVO2,
-       H_WTEMP, H_SET, H_LEVEL, H_FLOW, H_PRESS, H_GT38, H_LOW, ECMO_N };
+       H_WTEMP, H_SET, H_LEVEL, H_FLOW, H_PRESS, H_GT38, H_LOW,
+       E_SAO2, E_TARGET, E_SWEEP_ON, E_SWEEP_ACT, E_FIO2_MEAS, E_GAS_SRC, E_GAS_IN, E_GAS_SUP,
+       E_AV_MODE, E_AV_VALVE, E_AV_DUR, E_AV_IN, E_AV_EX, H_MODE,
+       L_HB, L_HCT, L_PH, L_PCO2, L_PO2, L_LACT, L_ALB, L_ACT,
+       LM_FLOW_LO, LM_FLOW_HI, LM_PUMP_HI, LM_PV_LO, LM_PA_HI, LM_PIN_HI, LM_DP_HI, LM_TEMP_LO, LM_TEMP_HI,
+       LM_SVO2_LO, LM_FIO2_LO, LM_GASP_LO, ECMO_N };
 const Field ECMO_FIELDS[ECMO_N] = {
   {"ECMO_BLOOD_FLOW", "L/min", 2},
   {"ECMO_PUMP_SPEED", "{rpm}", 0},
@@ -96,19 +106,53 @@ const Field ECMO_FIELDS[ECMO_N] = {
   {"ECMO_P_PRE_OXY", "mm[Hg]", 0},
   {"ECMO_P_POST_OXY", "mm[Hg]", 0},
   {"ECMO_OXY_DELTA_P", "mm[Hg]", 0},
-  {"ECMO_SWEEP_FLOW", "L/min", 1},
-  {"ECMO_FIO2", "%", 0},
+  {"ECMO_SWEEP_FLOW", "L/min", 1, SETTINGS_EVERY},
+  {"ECMO_FIO2", "%", 0, SETTINGS_EVERY},
   {"ECMO_BLOOD_TEMP", "Cel", 1},
   {"ECMO_BUBBLE_ALARM", "{flag}", 0},
   {"ECMO_LEVEL_ALARM", "{flag}", 0},
   {"ECMO_SVO2", "%", 0},
   {"HU_WATER_TEMP", "Cel", 1},
-  {"HU_SET_TEMP", "Cel", 1},
+  {"HU_SET_TEMP", "Cel", 1, SETTINGS_EVERY},
   {"HU_WATER_LEVEL", "%", 1},
   {"HU_WATER_FLOW", "L/min", 2},
   {"HU_WATER_PRESSURE", "bar", 3},
-  {"HU_GT38_ON", "{flag}", 0},
+  {"HU_GT38_ON", "{flag}", 0, SETTINGS_EVERY},
   {"HU_LOW_WATER", "{flag}", 0},
+  {"ECMO_SAO2", "%", 0},
+  {"ECMO_PUMP_TARGET", "{rpm}", 0, SETTINGS_EVERY},
+  {"ECMO_SWEEP_ON", "{flag}", 0, SETTINGS_EVERY},
+  {"ECMO_SWEEP_FLOW_ACTUAL", "L/min", 2},
+  {"ECMO_FIO2_MEASURED", "%", 1},
+  {"ECMO_GAS_SOURCE", "{code}", 0, SETTINGS_EVERY},
+  {"ECMO_GAS_INLET_P", "bar", 2},
+  {"ECMO_GAS_SUPPLY_P", "bar", 2},
+  {"ECMO_AV_MODE", "{code}", 0, SETTINGS_EVERY},
+  {"ECMO_AV_VALVE", "{code}", 0, SETTINGS_EVERY},
+  {"ECMO_AV_DURATION", "s", 0, SETTINGS_EVERY},
+  {"ECMO_AV_IN_FLOW", "L/min", 2},
+  {"ECMO_AV_EX_FLOW", "L/min", 2},
+  {"HU_MODE", "{code}", 0, SETTINGS_EVERY},
+  {"LAB_HB", "g/dL", 1, ON_CHANGE},
+  {"LAB_HCT", "%", 1, ON_CHANGE},
+  {"LAB_PH", "[pH]", 2, ON_CHANGE},
+  {"LAB_PCO2", "mm[Hg]", 1, ON_CHANGE},
+  {"LAB_PO2", "mm[Hg]", 1, ON_CHANGE},
+  {"LAB_LACTATE", "mmol/L", 1, ON_CHANGE},
+  {"LAB_ALBUMIN", "g/dL", 1, ON_CHANGE},
+  {"LAB_ACT", "s", 0, ON_CHANGE},
+  {"LIMIT_FLOW_LO", "L/min", 2, SETTINGS_EVERY},
+  {"LIMIT_FLOW_HI", "L/min", 2, SETTINGS_EVERY},
+  {"LIMIT_PUMP_HI", "{rpm}", 0, SETTINGS_EVERY},
+  {"LIMIT_PV_LO", "mm[Hg]", 1, SETTINGS_EVERY},
+  {"LIMIT_PA_HI", "mm[Hg]", 1, SETTINGS_EVERY},
+  {"LIMIT_PIN_HI", "mm[Hg]", 1, SETTINGS_EVERY},
+  {"LIMIT_DP_HI", "mm[Hg]", 1, SETTINGS_EVERY},
+  {"LIMIT_TEMP_LO", "Cel", 1, SETTINGS_EVERY},
+  {"LIMIT_TEMP_HI", "Cel", 1, SETTINGS_EVERY},
+  {"LIMIT_SVO2_LO", "%", 1, SETTINGS_EVERY},
+  {"LIMIT_FIO2_LO", "%", 0, SETTINGS_EVERY},
+  {"LIMIT_GASP_LO", "bar", 1, SETTINGS_EVERY},
 };
 
 // EBOO (a slow pump: about 13 rpm and 0.13 L/min, as on the HMI)
@@ -163,6 +207,47 @@ struct Snapshot {
   float v[MAX_FIELDS];
 };
 
+// ---------------- The machine's own alarms and logs (ECMO/EBOO HMI) ----------------
+// Sent to POST /vigil/events. One-way, like everything here: the portal stores and shows them
+// and never acknowledges, silences or changes anything on the machine.
+enum { LOG_TREATMENT, LOG_ALARM, LOG_SYSTEM };
+const size_t LOG_CAP = 48;             // entries waiting to be delivered (kept until the server has them)
+const size_t EVENTS_LOG_MAX = 20;      // entries per request
+const uint32_t EVENTS_MS = 10000;      // active alarms re-sent at least this often
+
+struct LogItem {
+  uint32_t no;
+  int64_t atMs;
+  uint8_t kind;               // LOG_TREATMENT / LOG_ALARM / LOG_SYSTEM
+  char event[48];
+  char value[24];
+  char details[32];           // system: details; alarm: the limit
+  char category[16];          // system log
+  char result[16];            // system: result; alarm: Active / Cleared
+  uint8_t priority;           // alarm: 1 low, 2 medium, 3 high
+  uint16_t code;              // alarm code
+};
+
+struct ActiveAlarm {
+  uint16_t code;
+  const char *text;
+  uint8_t priority;
+  bool acknowledged;
+  int64_t sinceMs;
+};
+
+struct Events {
+  LogItem log[LOG_CAP];
+  size_t head, count;
+  uint32_t logNo;
+  ActiveAlarm alarms[4];
+  size_t alarmCount;
+  bool dirty;                 // something new to report
+  bool busy;                  // a sender is sending them right now
+  uint32_t nextAt, retryAt, sent, lost;
+  String lastResult;
+};
+
 struct Machine {
   Kind kind;
   const char *type;           // the machine type it must be registered as in the portal
@@ -173,11 +258,14 @@ struct Machine {
   bool enabled;               // credentials filled in
   bool paused;                // "off" command
   float v[MAX_FIELDS];        // latest readings
-  Snapshot queue[QUEUE_LEN];
-  size_t qHead, qCount;
+  float lastSent[MAX_FIELDS]; // what was last sent of each value (fields not sent every second)
+  uint32_t ticks;
+  Snapshot *queue;            // qCap messages, in PSRAM when the board has it (see bigBuffer)
+  size_t qCap, qHead, qCount;
   uint32_t messageNo, sent, dropped, nextSendAt, lastOkAt;
   bool busy;                  // a sender is sending for it right now
   String lastResult;
+  Events *events;             // ECMO and EBOO: the machine's own alarms and logs
 };
 
 /** One sender task's own connection (see SENDERS). */
@@ -185,10 +273,21 @@ struct Sender {
   WiFiClientSecure tls;
   WiFiClient plain;
   HTTPClient http;
+  Snapshot *batch;            // BATCH_MAX messages being sent
 };
 
 /** The machines' queues, results and the pump's state are shared by loop() and the sender tasks: they change only under this lock. */
 SemaphoreHandle_t stateLock;
+SemaphoreHandle_t handshakeLock;      // one TLS handshake at a time
+
+/**
+ * Large buffers (the offline queues, about 50 KB) go to PSRAM when the board has it (N16R8: Tools > PSRAM
+ * "OPI PSRAM"), leaving the chip's own memory to Wi-Fi and the TLS connections; without PSRAM they use it.
+ */
+void *bigBuffer(size_t bytes) {
+  void *p = psramFound() ? heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : nullptr;
+  return p ? p : malloc(bytes);
+}
 struct Locked {
   Locked() { xSemaphoreTake(stateLock, portMAX_DELAY); }
   ~Locked() { xSemaphoreGive(stateLock); }
@@ -255,21 +354,104 @@ struct Setting {
   }
 };
 
+int64_t nowMs() {
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+void copyText(char *dst, size_t size, const char *src) {
+  strncpy(dst, src ? src : "", size - 1);
+  dst[size - 1] = 0;
+}
+
+/** One entry of the machine's own log, kept until the server has it (the oldest gives way when full). */
+void addLog(Machine &m, uint8_t kind, const char *event, const char *value = "", const char *details = "",
+            const char *category = "", const char *result = "", uint8_t priority = 0, uint16_t code = 0, int64_t atMs = 0) {
+  Events *ev = m.events;
+  if (!ev) return;
+  Locked lock;
+  if (ev->count == LOG_CAP) {
+    ev->head = (ev->head + 1) % LOG_CAP;
+    ev->count--;
+    ev->lost++;
+  }
+  LogItem &e = ev->log[(ev->head + ev->count) % LOG_CAP];
+  e.no = ++ev->logNo;
+  e.atMs = atMs ? atMs : nowMs();
+  e.kind = kind;
+  copyText(e.event, sizeof(e.event), event);
+  copyText(e.value, sizeof(e.value), value);
+  copyText(e.details, sizeof(e.details), details);
+  copyText(e.category, sizeof(e.category), category);
+  copyText(e.result, sizeof(e.result), result);
+  e.priority = priority;
+  e.code = code;
+  ev->count++;
+  ev->dirty = true;
+}
+
+/** A setting changed on the machine: a treatment log entry, as the HMI writes one. */
+void logSetting(Machine &m, const char *event, float value, const char *unit, int decimals) {
+  char text[24];
+  snprintf(text, sizeof(text), "%.*f %s", decimals, value, unit);
+  addLog(m, LOG_TREATMENT, event, text);
+}
+
 // Ranges: inside the ECMO HMI's default alarm limits (flow 1.00-6.00 L/min, pump < 5000 rpm,
-// Pv > -100, Pa < 300, Pin < 350, dP < 50 mmHg, temperature 35.0-38.5 C, SvO2 > 60 %).
-void simulateEcmo(float *v) {
-  static Walk rpm(2900, 3500, 12, 0.08f, 2), lpk(1.20f, 1.32f, 0.004f, 0.1f, 0.0005f);
+// Pv > -100, Pa < 300, Pin < 350, dP < 50 mmHg, temperature 35.0-38.5 C, SvO2 > 60 %, gas > 2.5 bar).
+// Every 30 minutes the machine asks for a blood gas sample (alarm 901, as the HMI's reminder does);
+// 3 minutes later the results are entered (labs) and the alarm clears.
+const uint32_t LAB_EVERY_MS = 30UL * 60 * 1000;
+const uint32_t LAB_TAKES_MS = 3UL * 60 * 1000;
+
+void enterLabs(Machine &m) {
+  float *v = m.v;
+  v[L_HB] = roundf(rnd(10.5f, 13.5f) * 10) / 10;
+  v[L_HCT] = roundf(v[L_HB] * 3.0f * 10) / 10;
+  v[L_PH] = roundf(rnd(7.36f, 7.44f) * 100) / 100;
+  v[L_PCO2] = roundf(rnd(36, 44) * 10) / 10;
+  v[L_PO2] = roundf(rnd(180, 320) * 10) / 10;
+  v[L_LACT] = roundf(rnd(0.8f, 1.9f) * 10) / 10;
+  v[L_ALB] = roundf(rnd(3.2f, 4.4f) * 10) / 10;
+  v[L_ACT] = roundf(rnd(160, 200));
+  char text[24];
+  snprintf(text, sizeof(text), "Hb %.1f pH %.2f", v[L_HB], v[L_PH]);
+  addLog(m, LOG_TREATMENT, "Lab values entered", text);
+}
+
+void simulateEcmo(Machine &m) {
+  float *v = m.v;
+  static Walk rpmDev(-60, 60, 12, 0.08f, 2), lpk(1.20f, 1.32f, 0.004f, 0.1f, 0.0005f);
   static Walk pv(-55, -20, 1.5f, 0.1f, 0.2f), post(165, 225, 2.0f, 0.1f, 0.3f);
   static Walk dp(15, 22, 0.8f, 0.2f, 0);                       // no drift: no oxygenator dP trend
-  static Walk temp(36.4f, 37.2f, 0.06f, 0.05f, 0.002f), svo2(67, 80, 0.6f, 0.05f, 0.05f);
+  static Walk temp(36.4f, 37.2f, 0.06f, 0.05f, 0.002f), svo2(67, 80, 0.6f, 0.05f, 0.05f), sao2(96, 100, 0.4f, 0.1f, 0.02f);
   static Walk huLevel(72, 94, 0.15f, 0.02f, 0.05f), huFlow(2.1f, 2.9f, 0.03f, 0.1f, 0.002f);
+  static Walk gasIn(3.0f, 3.4f, 0.02f, 0.1f, 0.002f), gasSup(4.2f, 4.7f, 0.02f, 0.1f, 0.002f);
+  static const float TARGET[] = {3000, 3100, 3200, 3300, 3400};
   static const float SWEEP[] = {2.5f, 3.0f, 3.5f};
   static const float FIO2[] = {60, 70, 80, 90, 100};
   static const float HU_SET[] = {36.5f, 37.0f, 37.5f};
-  static Setting sweep = {SWEEP, 3, 1, 0}, fio2 = {FIO2, 5, 4, 0}, huSet = {HU_SET, 3, 1, 0};
+  static Setting target = {TARGET, 5, 2, 0}, sweep = {SWEEP, 3, 1, 0}, fio2 = {FIO2, 5, 4, 0}, huSet = {HU_SET, 3, 1, 0};
   static float huTemp = 0;
+  static bool started = false;
+  static uint32_t sampleDueAt = 0;
+  static bool sampleAsked = false;
 
-  v[E_RPM] = rpm.step();
+  if (!started) {                          // power-on: what the HMI logs at start-up, then the first labs
+    started = true;
+    addLog(m, LOG_SYSTEM, "System powered ON", "", "Controller startup", "System", "Completed");
+    addLog(m, LOG_SYSTEM, "Self-test", "", "Simulated sensors", "Diagnostic", "Passed");
+    addLog(m, LOG_SYSTEM, "HMI connected", "", "UART1 / 115200 baud", "Communication", "Connected");
+    addLog(m, LOG_TREATMENT, "ECMO mode selected", "Pump stopped");
+    logSetting(m, "Pump started", target.value(), "RPM", 0);
+    enterLabs(m);
+    sampleDueAt = millis() + LAB_EVERY_MS;
+  }
+
+  const float prevTarget = v[E_TARGET], prevSweep = v[E_SWEEP], prevFio2 = v[E_FIO2], prevHuSet = v[H_SET];
+  v[E_TARGET] = target.value();
+  v[E_RPM] = v[E_TARGET] + rpmDev.step();
   v[E_FLOW] = v[E_RPM] / 1000.0f * lpk.step() + rnd(-0.02f, 0.02f);   // follows the pump
   v[E_PV] = pv.step();
   v[E_POST] = post.step() + (v[E_FLOW] - 4.0f) * 15.0f;
@@ -281,6 +463,19 @@ void simulateEcmo(float *v) {
   v[E_BUBBLE] = 0;
   v[E_LEVEL] = 0;
   v[E_SVO2] = svo2.step();
+  v[E_SAO2] = sao2.step();
+
+  v[E_SWEEP_ON] = 1;
+  v[E_SWEEP_ACT] = v[E_SWEEP] + rnd(-0.06f, 0.06f);
+  v[E_FIO2_MEAS] = v[E_FIO2] + rnd(-0.6f, 0.6f);
+  v[E_GAS_SRC] = 2;                        // O2 + air
+  v[E_GAS_IN] = gasIn.step();
+  v[E_GAS_SUP] = gasSup.step();
+  v[E_AV_MODE] = 0;                        // manual
+  v[E_AV_VALVE] = 0;                       // closed
+  v[E_AV_DUR] = 10;
+  v[E_AV_IN] = v[E_SWEEP_ACT];
+  v[E_AV_EX] = v[E_SWEEP_ACT] * 0.97f + rnd(-0.02f, 0.02f);
 
   const float set = huSet.value();
   if (!huTemp) huTemp = set;
@@ -292,6 +487,44 @@ void simulateEcmo(float *v) {
   v[H_PRESS] = 0.06f + v[H_FLOW] * 0.07f + rnd(-0.004f, 0.004f);
   v[H_GT38] = 0;
   v[H_LOW] = 0;
+  v[H_MODE] = 2;                           // run
+
+  // the machine's alarm limits: the HMI's defaults
+  v[LM_FLOW_LO] = 1.00f; v[LM_FLOW_HI] = 6.00f; v[LM_PUMP_HI] = 5000; v[LM_PV_LO] = -100.0f;
+  v[LM_PA_HI] = 300.0f; v[LM_PIN_HI] = 350.0f; v[LM_DP_HI] = 50.0f; v[LM_TEMP_LO] = 35.0f; v[LM_TEMP_HI] = 38.5f;
+  v[LM_SVO2_LO] = 60.0f; v[LM_FIO2_LO] = 21; v[LM_GASP_LO] = 2.5f;
+
+  // settings changed on the machine: treatment log entries
+  if (!isnan(prevTarget) && prevTarget != v[E_TARGET]) logSetting(m, "Pump speed set", v[E_TARGET], "RPM", 0);
+  if (!isnan(prevSweep) && prevSweep != v[E_SWEEP]) logSetting(m, "Sweep gas flow set", v[E_SWEEP], "L/min", 1);
+  if (!isnan(prevFio2) && prevFio2 != v[E_FIO2]) logSetting(m, "FiO2 set", v[E_FIO2], "%", 0);
+  if (!isnan(prevHuSet) && prevHuSet != set) logSetting(m, "Heater set point", set, "C", 1);
+
+  // blood gas sample: alarm 901, then the results are entered and the alarm clears
+  Events *ev = m.events;
+  if (ev && !sampleAsked && (int32_t)(millis() - sampleDueAt) >= 0) {
+    sampleAsked = true;
+    const int64_t since = nowMs();
+    {
+      Locked lock;
+      ev->alarms[0] = {901, "BLOOD GAS SAMPLE DUE", 1, false, since};
+      ev->alarmCount = 1;
+      ev->dirty = true;
+    }
+    addLog(m, LOG_ALARM, "BLOOD GAS SAMPLE DUE", "---", "---", "", "Active", 1, 901, since);
+  } else if (ev && sampleAsked && (int32_t)(millis() - sampleDueAt) >= (int32_t)LAB_TAKES_MS) {
+    sampleAsked = false;
+    int64_t since;
+    {
+      Locked lock;
+      since = ev->alarms[0].sinceMs;
+      ev->alarmCount = 0;
+      ev->dirty = true;
+    }
+    enterLabs(m);
+    addLog(m, LOG_ALARM, "BLOOD GAS SAMPLE DUE", "---", "---", "", "Cleared", 1, 901, since);
+    sampleDueAt += LAB_EVERY_MS;
+  }
 }
 
 void simulateEboo(float *v) {
@@ -340,7 +573,7 @@ void simulateMulti(float *v) {
 
 void simulate(Machine &m) {
   switch (m.kind) {
-    case K_ECMO: simulateEcmo(m.v); break;
+    case K_ECMO: simulateEcmo(m); break;
     case K_EBOO: simulateEboo(m.v); break;
     case K_SPO2: simulateSpo2(m.v); break;
     case K_TEMP: simulateTemp(m.v); break;
@@ -349,23 +582,37 @@ void simulate(Machine &m) {
 }
 
 // ---------------- Message queues (one per machine) ----------------
+/**
+ * Queues this second's message. Live readings go in every message; settings and alarm limits every
+ * SETTINGS_EVERY seconds and whenever they change; lab results only when new ones are entered.
+ * A value left out is NAN and gets no OBX.
+ */
 void enqueue(Machine &m, int64_t tMs) {
-  if (m.qCount == QUEUE_LEN) {             // full: the oldest message gives way
-    m.qHead = (m.qHead + 1) % QUEUE_LEN;
+  if (m.qCount == m.qCap) {                // full: the oldest message gives way
+    m.qHead = (m.qHead + 1) % m.qCap;
     m.qCount--;
     m.dropped++;
   }
-  Snapshot &s = m.queue[(m.qHead + m.qCount) % QUEUE_LEN];
+  Snapshot &s = m.queue[(m.qHead + m.qCount) % m.qCap];
   s.no = ++m.messageNo;
   s.tMs = tMs;
   memcpy(s.v, m.v, sizeof(s.v));
+  for (size_t i = 0; i < m.count; i++) {
+    const uint8_t every = m.fields[i].every;
+    if (!every) continue;
+    const bool changed = !(m.v[i] == m.lastSent[i]);        // also true the first time (lastSent is NAN)
+    const bool due = every != ON_CHANGE && m.ticks % every == 0;
+    if (changed || due) m.lastSent[i] = m.v[i];
+    else s.v[i] = NAN;
+  }
+  m.ticks++;
   m.qCount++;
 }
 
 /** Removes the messages up to and including number lastNo (the queue may have moved on while they were being sent). */
 void dropUpTo(Machine &m, uint32_t lastNo) {
   while (m.qCount && m.queue[m.qHead].no <= lastNo) {
-    m.qHead = (m.qHead + 1) % QUEUE_LEN;
+    m.qHead = (m.qHead + 1) % m.qCap;
     m.qCount--;
   }
 }
@@ -397,6 +644,7 @@ String hl7Time(int64_t ms) {
 }
 
 void appendObx(String &out, int &setId, const Field &f, float v, const String &ts) {
+  if (isnan(v)) return;                    // not in this message (see enqueue)
   char val[24];
   snprintf(val, sizeof(val), "%.*f", f.decimals, v);
   out += "OBX|";
@@ -520,8 +768,12 @@ int post(Sender &s, const String &url, const char *id, const char *token, const 
   s.http.addHeader("Content-Type", "application/json");
   s.http.addHeader("X-Machine-Id", id);
   s.http.addHeader("X-Machine-Token", token);
+  // Opening a connection (the TLS handshake) needs the most memory: one sender at a time does it.
+  const bool opening = useHttps ? !s.tls.connected() : !s.plain.connected();
+  if (opening) xSemaphoreTake(handshakeLock, portMAX_DELAY);
   const int code = s.http.POST(body);
   resp = code > 0 ? s.http.getString() : s.http.errorToString(code);
+  if (opening) xSemaphoreGive(handshakeLock);
   if (code > 0) noteServerClock(s.http.header("Date"));
   s.http.end();
   return code;
@@ -529,13 +781,12 @@ int post(Sender &s, const String &url, const char *id, const char *token, const 
 
 /** Sends the oldest queued messages of one machine (up to BATCH_MAX). The queue stays shared: copied under the lock, sent without it. */
 void sendFor(Machine &m, Sender &s) {
-  static Snapshot batches[SENDERS][BATCH_MAX];   // one batch buffer per sender, kept off the task stack
-  Snapshot *batch = batches[&s - senders];
+  Snapshot *batch = s.batch;
   size_t n;
   {
     Locked lock;
     n = m.qCount < BATCH_MAX ? m.qCount : BATCH_MAX;
-    for (size_t i = 0; i < n; i++) batch[i] = m.queue[(m.qHead + i) % QUEUE_LEN];
+    for (size_t i = 0; i < n; i++) batch[i] = m.queue[(m.qHead + i) % m.qCap];
   }
   if (!n) return;
   String body;
@@ -824,13 +1075,101 @@ void runPumpJob(Sender &s) {
   }
 }
 
+// ---------------- The machine's alarms and logs, sent ----------------
+String eventsUrl;                          // SERVER_URL with /ingest replaced by /events
+
+String isoMs(int64_t ms) {
+  const time_t t = (time_t)(ms / 1000);
+  struct tm tm;
+  gmtime_r(&t, &tm);
+  char buf[32];
+  const size_t n = strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm);
+  snprintf(buf + n, sizeof(buf) - n, ".%03dZ", (int)(ms % 1000));
+  return String(buf);
+}
+
+void jsonField(String &out, const char *key, const char *value) {
+  if (!value || !*value) return;
+  out += ",\"";
+  out += key;
+  out += "\":";
+  appendJsonString(out, String(value));
+}
+
+/** The active alarms (always, [] when none) and up to EVENTS_LOG_MAX waiting log entries; entries go once the server has them. */
+void sendEvents(Machine &m, Sender &s) {
+  static LogItem copies[SENDERS][EVENTS_LOG_MAX];
+  LogItem *batch = copies[&s - senders];
+  Events &ev = *m.events;
+  ActiveAlarm alarms[4];
+  size_t na, n;
+  {
+    Locked lock;
+    na = ev.alarmCount;
+    memcpy(alarms, ev.alarms, sizeof(alarms));
+    n = ev.count < EVENTS_LOG_MAX ? ev.count : EVENTS_LOG_MAX;
+    for (size_t i = 0; i < n; i++) batch[i] = ev.log[(ev.head + i) % LOG_CAP];
+    ev.dirty = false;
+  }
+  static const char *KIND[] = {"treatment", "alarm", "system"};
+  String body = "{\"alarms\":[";
+  for (size_t i = 0; i < na; i++) {
+    if (i) body += ',';
+    body += "{\"code\":" + String(alarms[i].code) + ",\"text\":";
+    appendJsonString(body, String(alarms[i].text));
+    body += ",\"priority\":" + String(alarms[i].priority) + ",\"acknowledged\":" + (alarms[i].acknowledged ? "true" : "false");
+    body += ",\"since\":\"" + isoMs(alarms[i].sinceMs) + "\"}";
+  }
+  body += "],\"silencedUntil\":null";
+  if (n) {
+    body += ",\"log\":[";
+    for (size_t i = 0; i < n; i++) {
+      const LogItem &e = batch[i];
+      if (i) body += ',';
+      body += String("{\"kind\":\"") + KIND[e.kind] + "\",\"at\":\"" + isoMs(e.atMs) + "\"";
+      jsonField(body, "event", e.event);
+      jsonField(body, "value", e.value);
+      jsonField(body, "details", e.details);
+      jsonField(body, "category", e.category);
+      jsonField(body, "result", e.result);
+      if (e.kind == LOG_ALARM) body += ",\"priority\":" + String(e.priority ? e.priority : 1) + ",\"code\":" + String(e.code);
+      body += '}';
+    }
+    body += ']';
+  }
+  body += '}';
+
+  String resp;
+  const int code = post(s, eventsUrl, m.id, m.token, body, resp);
+  const uint32_t now = millis();
+  Locked lock;
+  if (code >= 200 && code < 300) {
+    const uint32_t lastNo = n ? batch[n - 1].no : 0;
+    while (ev.count && ev.log[ev.head].no <= lastNo) {
+      ev.head = (ev.head + 1) % LOG_CAP;
+      ev.count--;
+    }
+    ev.sent += n;
+    ev.lastResult = String(code) + ", " + na + " alarm(s), " + n + " log entries";
+    ev.nextAt = now + EVENTS_MS;
+    if (ev.count) ev.dirty = true;         // more entries waiting
+  } else {
+    ev.lastResult = code == 401 ? String("401: machine ID or token not accepted; check secrets.h") : String(code) + ": " + resp.substring(0, 120);
+    ev.dirty = true;
+    ev.retryAt = now + (code == 401 || code == 403 ? 30000 : 5000);
+    Serial.printf("[%s alarms/logs] %s\n", m.code, ev.lastResult.c_str());
+  }
+}
+
 // ---------------- Sender tasks ----------------
 const int PUMP_JOB = -2;
+const int EVENTS_JOB = 100;                // + machine index: that machine's alarms and logs
 
 /**
  * The next piece of work for a free sender: the pump when its pull or status is due (a few
- * requests a minute), else the machine whose oldest unsent reading has waited longest. Claimed
- * work is marked busy, so two senders never send for the same machine at once.
+ * requests a minute), a machine's alarms and logs when there is something new (or every
+ * EVENTS_MS), else the machine whose oldest unsent reading has waited longest. Claimed work is
+ * marked busy, so two senders never send for the same thing at once.
  */
 int claimJob() {
   Locked lock;
@@ -839,6 +1178,13 @@ int claimJob() {
       (!pump.lastPull || now - pump.lastPull >= PUMP_PULL_MS || (pump.hasPatient && now - pump.lastStatus >= PUMP_STATUS_MS))) {
     pump.busy = true;
     return PUMP_JOB;
+  }
+  for (size_t i = 0; i < MACHINE_COUNT; i++) {
+    Events *ev = machines[i].events;
+    if (!machines[i].enabled || machines[i].paused || !ev || ev->busy || (int32_t)(now - ev->retryAt) < 0) continue;
+    if (!ev->dirty && (int32_t)(now - ev->nextAt) < 0) continue;
+    ev->busy = true;
+    return EVENTS_JOB + (int)i;
   }
   int best = -1;
   int64_t oldest = 0;
@@ -858,6 +1204,7 @@ int claimJob() {
 void releaseJob(int job) {
   Locked lock;
   if (job == PUMP_JOB) pump.busy = false;
+  else if (job >= EVENTS_JOB) machines[job - EVENTS_JOB].events->busy = false;
   else machines[job].busy = false;
 }
 
@@ -875,6 +1222,7 @@ void senderTask(void *arg) {
       continue;
     }
     if (job == PUMP_JOB) runPumpJob(s);
+    else if (job >= EVENTS_JOB) sendEvents(machines[job - EVENTS_JOB], s);
     else sendFor(machines[job], s);
     releaseJob(job);
   }
@@ -906,6 +1254,15 @@ void printStatus() {
   if (!pump.enabled) Serial.printf("  %-10s %-24s not simulated (no credentials in secrets.h)\n", pump.code, "Infusion pump");
   else Serial.printf("  %-10s %-24s %s sent %lu | %s\n", pump.code, "Infusion pump", pump.paused ? "OFF " : "", (unsigned long)pump.sent,
                      pump.lastResult.c_str());
+  for (size_t i = 0; i < MACHINE_COUNT; i++) {
+    const Machine &m = machines[i];
+    if (!m.enabled || !m.events || m.kind != K_ECMO) continue;
+    const Events &ev = *m.events;
+    Serial.printf("  %-10s alarms and logs: %u active alarm(s), %lu log entries sent, %u waiting", m.code, (unsigned)ev.alarmCount,
+                  (unsigned long)ev.sent, (unsigned)ev.count);
+    if (ev.lost) Serial.printf(" (%lu lost: log full while offline)", (unsigned long)ev.lost);
+    Serial.printf(" | %s\n", ev.lastResult.length() ? ev.lastResult.c_str() : "nothing sent yet");
+  }
 }
 
 void printHelp() {
@@ -965,6 +1322,16 @@ void setup() {
   for (size_t i = 0; i < MACHINE_COUNT; i++) {
     Machine &m = machines[i];
     m.enabled = credentialsFilled(m.id, m.token);
+    if (m.enabled) {
+      m.qCap = psramFound() ? QUEUE_LEN : QUEUE_LEN_SMALL;
+      m.queue = static_cast<Snapshot *>(bigBuffer(m.qCap * sizeof(Snapshot)));
+      if (!m.queue) {
+        m.enabled = false;
+        Serial.printf("  %s: not enough memory for its queue\n", m.code);
+      }
+      for (size_t f = 0; f < MAX_FIELDS; f++) m.v[f] = m.lastSent[f] = NAN;
+      if (m.kind == K_ECMO || m.kind == K_EBOO) m.events = new Events();
+    }
     m.lastResult = "nothing sent yet";
     Serial.printf("  %-10s %-24s %s\n", m.code, m.type, m.enabled ? "simulated" : "not simulated (no credentials in secrets.h)");
   }
@@ -972,6 +1339,8 @@ void setup() {
   const int ingest = pump.syncUrl.indexOf("/vigil/ingest");
   pump.enabled = credentialsFilled(pump.id, pump.token) && ingest >= 0;
   if (ingest >= 0) pump.syncUrl = pump.syncUrl.substring(0, ingest) + "/sync";
+  eventsUrl = String(SERVER_URL);
+  eventsUrl.replace("/vigil/ingest", "/vigil/events");
   pump.lastResult = "nothing sent yet";
   Serial.printf("  %-10s %-24s %s\n", pump.code, "Infusion pump",
                 pump.enabled ? "simulated" : ingest < 0 ? "not simulated (SERVER_URL must end in /vigil/ingest)"
@@ -987,7 +1356,9 @@ void setup() {
   configTime(0, 0, "pool.ntp.org", "time.google.com");
 
   stateLock = xSemaphoreCreateMutex();
+  handshakeLock = xSemaphoreCreateMutex();
   for (int i = 0; i < SENDERS; i++) {
+    senders[i].batch = static_cast<Snapshot *>(bigBuffer(BATCH_MAX * sizeof(Snapshot)));
     char name[12];
     snprintf(name, sizeof(name), "sender%d", i + 1);
     xTaskCreatePinnedToCore(senderTask, name, SENDER_STACK, &senders[i], 1, nullptr, 1);

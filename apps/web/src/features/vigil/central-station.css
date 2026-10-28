@@ -349,6 +349,24 @@
   .vals tr.gap-row td { color: var(--muted); font-style: italic; text-align: center; }
 
   /* "Show values": every point in the window, about 10 rows visible, the rest by scrolling */
+  /* Section headings in a machine card (the HMI's groups) */
+  .m-section { margin: 14px 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--grid); padding-bottom: 3px; }
+  .m-section-note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+  table.vals.limits td:first-child { color: var(--ink-2); }
+  /* The machine's own alarms and logs: shown only, never answered from here */
+  .m-alarms { margin: 4px 0 6px; }
+  .m-alarms ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+  .m-alarm { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); border-left: 4px solid var(--low); font-size: 13px; }
+  .m-alarm.high { border-left-color: var(--critical); }
+  .m-alarm.medium { border-left-color: var(--warning); }
+  .m-alarm-meta { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+  .m-alarms-none, .m-alarms-note { margin: 4px 0 0; font-size: 12px; color: var(--ink-2); }
+  .pri-chip { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; color: #fff; background: var(--low); }
+  .pri-chip.high { background: var(--critical); }
+  .pri-chip.medium { background: var(--warning); color: #1a1a1a; }
+  .m-log { margin-top: 10px; border-top: 1px solid var(--grid); padding-top: 8px; }
+  .m-log .link { font-size: 13px; }
+  .m-log-tabs { margin: 8px 0 4px; }
   .vals-scroll { max-height: 262px; overflow-y: auto; margin: 6px 0 4px; overscroll-behavior: contain; }
   .vals-scroll table.vals { margin: 0; }
   .vals-scroll table.vals th { position: sticky; top: 0; background: var(--surface); z-index: 1; }

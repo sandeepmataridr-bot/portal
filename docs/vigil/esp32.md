@@ -140,6 +140,48 @@ The new readings are displayed; alarm limits for them (e.g. pump speed, temperat
 - **Time:** readings are stamped to the millisecond (NTP, re-synced every 15 min). The status line compares the board's clock with the server's and reports "CLOCK OFF" at 2 s or more.
 - **Serial Monitor:** `status`, `off <code>` / `on <code>`. Turning a machine off shows the portal's *No live data* (and, for a confirmed ECMO, the communication-lost alarm).
 
+## ECMO: every clinical value, the machine's alarms and logs
+
+The portal is one-way: it shows and stores what machines report and never controls a machine. It sends no commands, writes no settings or limits, and never acknowledges or silences a machine's alarms.
+
+**Values (HL7, `POST /vigil/ingest`).** Besides the main readings, an ECMO console sends:
+
+| Group | Signals |
+|---|---|
+| Circuit | `ECMO_PUMP_TARGET` (setting), `ECMO_SAO2` |
+| Sweep gas | `ECMO_SWEEP_ON`, `ECMO_SWEEP_FLOW_ACTUAL`, `ECMO_FIO2_MEASURED`, `ECMO_GAS_SOURCE` (0 O2, 1 air, 2 O2 + air), `ECMO_GAS_INLET_P`, `ECMO_GAS_SUPPLY_P` (bar) |
+| Air vent | `ECMO_AV_MODE` (0 manual, 1 auto), `ECMO_AV_VALVE` (0 closed, 1 open), `ECMO_AV_DURATION` (s), `ECMO_AV_IN_FLOW`, `ECMO_AV_EX_FLOW` |
+| Heater | `HU_MODE` (0 standby, 1 prime, 2 run, 3 system test) |
+| Labs (sent when entered) | `LAB_HB`, `LAB_HCT`, `LAB_PH`, `LAB_PCO2`, `LAB_PO2`, `LAB_LACTATE`, `LAB_ALBUMIN`, `LAB_ACT` |
+| Alarm limits | `LIMIT_FLOW_LO/HI`, `LIMIT_PUMP_HI`, `LIMIT_PV_LO`, `LIMIT_PA_HI`, `LIMIT_PIN_HI`, `LIMIT_DP_HI`, `LIMIT_TEMP_LO/HI`, `LIMIT_SVO2_LO`, `LIMIT_FIO2_LO`, `LIMIT_GASP_LO` |
+
+Coded values use the unit `{code}`; their names come from the server, so a machine sends only the number.
+
+**How often:**
+- Live readings go in every message.
+- Settings and limits go every 10 s, and at once when they change.
+- Labs go only when entered.
+
+**Alarms and logs (`POST /vigil/events`, same machine credential).** The body has two optional parts:
+- `alarms`: the machine's current list. It replaces the previous one; send `[]` when there are none.
+- `log`: treatment, alarm and system log entries. The machine resends an entry until the server answers 2xx. A repeat is ignored; an alarm entry's status (`result`: Active, Acknowledged, Cleared) is updated.
+
+The machine card shows the active alarms and a **Machine log** with Treatment, Alarm and System tabs.
+
+**Storage:**
+- **Messages:** every accepted message is stored, in compressed bundles of about 10 s per machine. Messages older than `VIGIL_HISTORY_DAYS` (default 365, since ECMO runs for months) are deleted.
+- **Logs:** the machine's logs are kept for good.
+- **Disk:** a 1 Hz ECMO console takes roughly 25–30 MB a day; a monitor takes much less.
+
+**Patient log download (superuser only).** Use **⬇ Download patient log** in the patient's details or on their monitor page. It produces one ZIP of CSV files for the whole stay or a chosen period:
+- `patient.csv` and `timeline.csv`;
+- `vigil-alerts.csv`: the portal's alerts and machine links;
+- `signals.csv`: what each column means;
+- `machines/<code>/`: for each machine, only for the time it was tagged to the patient:
+  - `readings.csv`, every message, or `pump-telemetry.csv` for a pump;
+  - the machine's `treatment-log.csv`, `alarm-log.csv` and `system-log.csv`;
+  - `assignments.csv` and `portal-events.csv`.
+
 ## Later: product firmware
 The bench gateway is an Arduino sketch. The product version moves to ESP-IDF, with:
 - secure boot and flash encryption

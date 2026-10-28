@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { VIGIL_GOOD_SQI, type VigilPoint, type VigilPriority, type VigilSignalState } from '@infusion/shared-types';
-import { GAP_S, fmtDur, fmtTime, fmtUnit, fmtVal, fmtWindow } from './format';
+import { GAP_S, fmtDur, fmtSig, fmtTime, fmtUnit, fmtWindow } from './format';
 
 const H = 92;
 const L = 38;
@@ -108,7 +108,7 @@ export function LineChart({ sig, now, win, bands, simulated }: Props) {
         viewBox={`0 0 ${W} ${H}`}
         role="img"
         tabIndex={0}
-        aria-label={`${sig.label}, last ${fmtWindow(win)}: latest ${fmtVal(sig.value)} ${fmtUnit(sig.unit)}. Use Show values for a table.`}
+        aria-label={`${sig.label}, last ${fmtWindow(win)}: latest ${fmtSig(sig, sig.value)} ${fmtUnit(sig.unit)}. Use Show values for a table.`}
         onPointerMove={(e) => {
           setPointer({ x: e.clientX, y: e.clientY });
           setPointerRect(boxOf(e.currentTarget));
@@ -187,7 +187,7 @@ export function LineChart({ sig, now, win, bands, simulated }: Props) {
         <div className="tooltip" style={tipPos}>
           <div className="tv">
             <i />
-            {fmtVal(hover[1])} {fmtUnit(sig.unit)}
+            {fmtSig(sig, hover[1])} {fmtUnit(sig.unit)}
           </div>
           <div className="tl">
             {sig.label} · {fmtTime(hover[0], simulated)}

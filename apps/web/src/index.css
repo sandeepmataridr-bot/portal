@@ -790,3 +790,21 @@ button {
 /* Doctor panel: the patient's room, with Move / Assign room */
 .doctor-room { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .doctor-room .change-doctor { flex-basis: 100%; }
+
+/* Superuser: download a patient's complete log */
+.download-log-row { margin: 10px 0; }
+.download-log select, .download-log input { max-width: 320px; }
+
+/* Superuser: which of a machine's values are shown */
+.machine-values__count { font-weight: 600; margin: 8px 0; }
+.machine-values__group { border: 1px solid var(--color-border); border-radius: 6px; margin: 0 0 10px; padding: 6px 10px 8px; }
+.machine-values__group legend { font-weight: 700; padding: 0 4px; }
+.machine-values__group legend .link-button { font-weight: 400; font-size: 0.8rem; }
+.machine-values__item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-weight: 400; cursor: pointer; }
+.machine-values__item input { width: 18px; height: 18px; flex: none; }
+.machine-values__unit { color: var(--color-muted); }
+@media (min-width: 721px) {
+  .machine-values__group { columns: 2; column-gap: 24px; }
+  .machine-values__group legend { column-span: all; }
+  .machine-values__item { break-inside: avoid; }
+}

@@ -151,9 +151,9 @@ describe('0dh device frames', () => {
       'ECMO_P_PRE_OXY',
       'ECMO_P_POST_OXY',
       'ECMO_OXY_DELTA_P',
+      'ECMO_BLOOD_TEMP',
       'ECMO_SWEEP_FLOW',
       'ECMO_FIO2',
-      'ECMO_BLOOD_TEMP',
       'HU_WATER_TEMP',
       'HU_SET_TEMP',
       'HU_WATER_FLOW',
@@ -171,6 +171,53 @@ describe('0dh device frames', () => {
       SignalKind.NUMERIC,
     ]);
     expect(m.unmapped).toBe(0);
+  });
+
+  it('maps every clinical value of the ECMO HMI: gas, air vent, heater mode, labs, alarm limits', () => {
+    const hmi: [string, number, string][] = [
+      ['ECMO_PUMP_TARGET', 3200, '{rpm}'],
+      ['ECMO_SAO2', 98, '%'],
+      ['ECMO_SWEEP_ON', 1, '{flag}'],
+      ['ECMO_SWEEP_FLOW_ACTUAL', 3.0, 'L/min'],
+      ['ECMO_FIO2_MEASURED', 59.6, '%'],
+      ['ECMO_GAS_SOURCE', 2, '{code}'],
+      ['ECMO_GAS_INLET_P', 3.2, 'bar'],
+      ['ECMO_GAS_SUPPLY_P', 4.5, 'bar'],
+      ['ECMO_AV_MODE', 0, '{code}'],
+      ['ECMO_AV_VALVE', 0, '{code}'],
+      ['ECMO_AV_DURATION', 10, 's'],
+      ['ECMO_AV_IN_FLOW', 3.0, 'L/min'],
+      ['ECMO_AV_EX_FLOW', 2.9, 'L/min'],
+      ['HU_MODE', 2, '{code}'],
+      ['LAB_HB', 11.2, 'g/dL'],
+      ['LAB_HCT', 33.5, '%'],
+      ['LAB_PH', 7.38, '[pH]'],
+      ['LAB_PCO2', 41.2, 'mm[Hg]'],
+      ['LAB_PO2', 215, 'mm[Hg]'],
+      ['LAB_LACTATE', 1.8, 'mmol/L'],
+      ['LAB_ALBUMIN', 3.5, 'g/dL'],
+      ['LAB_ACT', 185, 's'],
+      ['LIMIT_FLOW_LO', 1.0, 'L/min'],
+      ['LIMIT_FLOW_HI', 6.0, 'L/min'],
+      ['LIMIT_PUMP_HI', 5000, '{rpm}'],
+      ['LIMIT_PV_LO', -100, 'mm[Hg]'],
+      ['LIMIT_PA_HI', 300, 'mm[Hg]'],
+      ['LIMIT_PIN_HI', 350, 'mm[Hg]'],
+      ['LIMIT_DP_HI', 50, 'mm[Hg]'],
+      ['LIMIT_TEMP_LO', 35.0, 'Cel'],
+      ['LIMIT_TEMP_HI', 38.5, 'Cel'],
+      ['LIMIT_SVO2_LO', 60, '%'],
+      ['LIMIT_FIO2_LO', 21, '%'],
+      ['LIMIT_GASP_LO', 2.5, 'bar'],
+    ];
+    const n = Normalizer.withDefaults();
+    for (const [i, s] of parseOru(gatewayFrame(1792600000, hmi)).entries()) {
+      const obs = n.normalize('hl7_pcd01', s, 'as-1');
+      expect([obs.codeSystem, obs.code, obs.value]).toEqual(['VIGIL', hmi[i][0], hmi[i][1]]);
+      expect(obs.flags.filter((f) => f !== 'SETTING')).toEqual([]);
+    }
+    expect([SIGNALS.LAB_PH.kind, SIGNALS.LAB_PH.decimals, SIGNALS.LIMIT_FLOW_LO.kind]).toEqual([SignalKind.LAB, 2, SignalKind.SETTING]);
+    expect(SIGNALS.ECMO_GAS_SOURCE.states).toEqual(['Oxygen', 'Medical air', 'O2 + air']);
   });
 
   it('shows an EBOO machine (esp32-machine-simulator) with its ozone, UV and O2 readings', () => {

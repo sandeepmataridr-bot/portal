@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { AppShell } from '../../components/AppShell';
 import { StatTile } from '../../components/StatTile';
-import { MachineStatusTile } from '../../components/MachineStatusTile';
 import { useMedicines, useMedicineDashboard, useTransactions, useMedicinesAudit } from '../../features/medicines/api';
 import { AddEditMedicineModal } from '../../features/medicines/AddEditMedicineModal';
 import { StockInModal } from '../../features/medicines/StockInModal';
@@ -55,7 +54,6 @@ export function PharmacyDashboard() {
         <StatTile label="Expired" value={dashboard?.expired ?? '…'} tone="danger" />
         <StatTile label="Expiring Soon" value={dashboard?.expiringSoon ?? '…'} tone="warning" />
         <StatTile label="Pending Verification" value={pendingSteps?.length ?? '…'} tone="warning" />
-        <MachineStatusTile />
       </div>
 
       <div className="tabs">
