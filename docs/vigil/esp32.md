@@ -128,7 +128,7 @@ The new readings are displayed; alarm limits for them (e.g. pump speed, temperat
 | Machine (register as) | Sends |
 |---|---|
 | ECMO | The ECMO HMI's readings: flow, pump speed, Pv, pre/post-oxygenator pressure, dP, sweep gas, FiO2, blood temperature, SvO2, bubble/level, heater unit |
-| EBOO | Pump speed (~13 rpm) and flow (~0.13 L/min), heart rate, SpO2, ozone concentration, ozone/UV/O2 on |
+| EBOO | Pump speed (~13 rpm), set speed and flow (~0.13 L/min), heart rate, SpO2, ozone concentration, ozone/UV/O2 on; its own alarms and logs (60-minute treatment sessions) |
 | SpO₂ monitor | SpO2, pulse rate, perfusion index |
 | Temperature monitor | Body temperature |
 | Multi-parameter monitor | SpO2, pulse, heart rate, temperature, NIBP, respiration, perfusion index |
@@ -167,6 +167,10 @@ Coded values use the unit `{code}`; their names come from the server, so a machi
 - `log`: treatment, alarm and system log entries. The machine resends an entry until the server answers 2xx. A repeat is ignored; an alarm entry's status (`result`: Active, Acknowledged, Cleared) is updated.
 
 The machine card shows the active alarms and a **Machine log** with Treatment, Alarm and System tabs.
+
+**What the simulator reports:**
+- **ECMO:** start-up system log; a treatment log entry for each setting change; every 30 minutes alarm 901 *BLOOD GAS SAMPLE DUE*, cleared 3 minutes later when the labs are entered.
+- **EBOO:** start-up system log; mode, O2/ozone/UV on, pump start and timer start; a log entry for each speed change. Each treatment session runs 60 minutes, then raises alarm 806 *TREATMENT TIME COMPLETE* while the pump keeps running, as on the HMI. 2 minutes later the timer is reset, the alarm clears and the next session starts.
 
 **Storage:**
 - **Messages:** every accepted message is stored, in compressed bundles of about 10 s per machine. Messages older than `VIGIL_HISTORY_DAYS` (default 365, since ECMO runs for months) are deleted.

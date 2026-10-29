@@ -156,18 +156,19 @@ const Field ECMO_FIELDS[ECMO_N] = {
 };
 
 // EBOO (a slow pump: about 13 rpm and 0.13 L/min, as on the HMI)
-enum { B_RPM, B_FLOW, B_HR, B_SPO2, B_OZONE, B_OZONE_ON, B_UV_ON, B_O2_ON, B_BUBBLE, B_LEVEL, EBOO_N };
+enum { B_RPM, B_FLOW, B_HR, B_SPO2, B_OZONE, B_OZONE_ON, B_UV_ON, B_O2_ON, B_BUBBLE, B_LEVEL, B_TARGET, EBOO_N };
 const Field EBOO_FIELDS[EBOO_N] = {
   {"ECMO_PUMP_SPEED", "{rpm}", 1},
   {"ECMO_BLOOD_FLOW", "L/min", 3},
   {"VITAL_HEART_RATE", "{beats}/min", 0},
   {"VITAL_SPO2", "%", 0},
   {"EBOO_OZONE_CONC", "ug/mL", 1},
-  {"EBOO_OZONE_ON", "{flag}", 0},
-  {"EBOO_UV_ON", "{flag}", 0},
-  {"EBOO_O2_ON", "{flag}", 0},
+  {"EBOO_OZONE_ON", "{flag}", 0, SETTINGS_EVERY},
+  {"EBOO_UV_ON", "{flag}", 0, SETTINGS_EVERY},
+  {"EBOO_O2_ON", "{flag}", 0, SETTINGS_EVERY},
   {"ECMO_BUBBLE_ALARM", "{flag}", 0},
   {"ECMO_LEVEL_ALARM", "{flag}", 0},
+  {"ECMO_PUMP_TARGET", "{rpm}", 0, SETTINGS_EVERY},   // the set speed (HMI page 05, 1-60 rpm)
 };
 
 enum { S_SPO2, S_PR, S_PI, SPO2_N };
@@ -527,12 +528,38 @@ void simulateEcmo(Machine &m) {
   }
 }
 
-void simulateEboo(float *v) {
+// EBOO treatment sessions, as the HMI's timer runs them: 60 minutes, then alarm 806 "TREATMENT TIME
+// COMPLETE" (the pump keeps running, as on the HMI); 2 minutes later the operator resets and starts
+// the next session and the alarm clears. Ranges stay inside the HMI's EBOO alarms (ozone <= 70 ug/mL,
+// SpO2 >= 90 %, heart rate 50-130).
+const uint32_t EBOO_SESSION_MS = 60UL * 60 * 1000;
+const uint32_t EBOO_RESTART_MS = 2UL * 60 * 1000;
+
+void simulateEboo(Machine &m) {
+  float *v = m.v;
   static const float SPEED[] = {12, 13, 14, 15};
   static Setting speed = {SPEED, 4, 1, 0};
   static Walk hr(68, 92, 1.0f, 0.1f, 0.1f), spo2(95, 99, 0.6f, 0.1f, 0.02f), ozone(26, 38, 0.4f, 0.1f, 0.05f);
+  static bool started = false, complete = false;
+  static uint32_t sessionEndsAt = 0;
 
-  v[B_RPM] = speed.value() + rnd(-0.15f, 0.15f);                      // tachometer noise around the set speed
+  if (!started) {                          // power-on: what the HMI logs at start-up, then a session starts
+    started = true;
+    addLog(m, LOG_SYSTEM, "System powered ON", "", "Controller startup", "System", "Completed");
+    addLog(m, LOG_SYSTEM, "Self-test", "", "Simulated sensors", "Diagnostic", "Passed");
+    addLog(m, LOG_SYSTEM, "HMI connected", "", "UART1 / 115200 baud", "Communication", "Connected");
+    addLog(m, LOG_TREATMENT, "EBOO mode selected", "Pump stopped");
+    addLog(m, LOG_TREATMENT, "O2 supply ON");
+    addLog(m, LOG_TREATMENT, "Ozone ON");
+    addLog(m, LOG_TREATMENT, "UV light ON");
+    logSetting(m, "Pump started", speed.value(), "RPM", 0);
+    addLog(m, LOG_TREATMENT, "Timer started");
+    sessionEndsAt = millis() + EBOO_SESSION_MS;
+  }
+
+  const float prevTarget = v[B_TARGET];
+  v[B_TARGET] = speed.value();
+  v[B_RPM] = v[B_TARGET] + rnd(-0.15f, 0.15f);                        // tachometer noise around the set speed
   v[B_FLOW] = v[B_RPM] * 0.01f + rnd(-0.002f, 0.002f);               // L/min, as the HMI computes it
   v[B_HR] = hr.step();
   v[B_SPO2] = spo2.step();
@@ -542,6 +569,35 @@ void simulateEboo(float *v) {
   v[B_O2_ON] = 1;
   v[B_BUBBLE] = 0;
   v[B_LEVEL] = 0;
+
+  if (!isnan(prevTarget) && prevTarget != v[B_TARGET]) logSetting(m, "EBOO pump speed", v[B_TARGET], "RPM", 0);
+
+  Events *ev = m.events;
+  if (ev && !complete && (int32_t)(millis() - sessionEndsAt) >= 0) {
+    complete = true;
+    const int64_t since = nowMs();
+    {
+      Locked lock;
+      ev->alarms[0] = {806, "TREATMENT TIME COMPLETE", 1, false, since};
+      ev->alarmCount = 1;
+      ev->dirty = true;
+    }
+    addLog(m, LOG_TREATMENT, "Treatment time complete");
+    addLog(m, LOG_ALARM, "TREATMENT TIME COMPLETE", "60 min", "---", "", "Active", 1, 806, since);
+  } else if (ev && complete && (int32_t)(millis() - sessionEndsAt) >= (int32_t)EBOO_RESTART_MS) {
+    complete = false;
+    int64_t since;
+    {
+      Locked lock;
+      since = ev->alarms[0].sinceMs;
+      ev->alarmCount = 0;
+      ev->dirty = true;
+    }
+    addLog(m, LOG_TREATMENT, "Timer reset");
+    addLog(m, LOG_ALARM, "TREATMENT TIME COMPLETE", "60 min", "---", "", "Cleared", 1, 806, since);
+    addLog(m, LOG_TREATMENT, "Timer started");
+    sessionEndsAt = millis() + EBOO_SESSION_MS;
+  }
 }
 
 void simulateSpo2(float *v) {
@@ -574,7 +630,7 @@ void simulateMulti(float *v) {
 void simulate(Machine &m) {
   switch (m.kind) {
     case K_ECMO: simulateEcmo(m); break;
-    case K_EBOO: simulateEboo(m.v); break;
+    case K_EBOO: simulateEboo(m); break;
     case K_SPO2: simulateSpo2(m.v); break;
     case K_TEMP: simulateTemp(m.v); break;
     case K_MULTI: simulateMulti(m.v); break;
