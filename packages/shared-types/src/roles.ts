@@ -1,6 +1,15 @@
 export const ROLES = ['admin', 'doctor', 'reception', 'pharmacy', 'insurance', 'superuser'] as const;
 export type Role = (typeof ROLES)[number];
 
+export const ROLE_LABEL: Record<Role, string> = {
+  admin: 'Admin',
+  doctor: 'Doctor',
+  reception: 'Reception',
+  pharmacy: 'Pharmacy',
+  insurance: 'Insurance',
+  superuser: 'Super user',
+};
+
 /**
  * The permission matrix from the approved plan's "Strict Role-Based Access &
  * Workflow Enforcement" section. This is policy data, not just documentation —

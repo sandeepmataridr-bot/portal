@@ -241,7 +241,10 @@ export function PharmacyDashboard() {
                   <td>
                     <span className={`status-badge status-${r.status}`}>{r.status}</span>
                   </td>
-                  <td>{new Date(r.createdAt).toLocaleString()}</td>
+                  <td>
+                    {new Date(r.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                    {r.requestedBy ? <div className="form-hint">by {r.requestedBy}</div> : null}
+                  </td>
                   <td>
                     {r.status === 'pending' ? (
                       <>
@@ -252,6 +255,8 @@ export function PharmacyDashboard() {
                           ❌ Reject
                         </button>
                       </>
+                    ) : r.resolvedBy ? (
+                      `${r.status === 'fulfilled' ? 'Fulfilled' : 'Rejected'} by ${r.resolvedBy}`
                     ) : (
                       'Done'
                     )}

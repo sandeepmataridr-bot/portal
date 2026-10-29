@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD, APP_FILTER } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_FILTER } from '@nestjs/core';
 import { InvalidStepTransitionFilter } from './common/filters/invalid-step-transition.filter.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -47,10 +47,6 @@ import { VigilModule } from './vigil/vigil.module.js';
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
     {
       provide: APP_FILTER,
       useClass: InvalidStepTransitionFilter,

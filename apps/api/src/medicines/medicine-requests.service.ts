@@ -11,10 +11,19 @@ export class MedicineRequestsService {
     private readonly audit: AuditService,
   ) {}
 
-  create(input: CreateMedicineRequestInput, actor: AuthenticatedUser) {
-    return this.prisma.medicineRequest.create({
-      data: { patientId: input.patientId, medicineName: input.medicineName, notes: input.notes },
+  async create(input: CreateMedicineRequestInput, actor: AuthenticatedUser) {
+    const created = await this.prisma.medicineRequest.create({
+      data: { patientId: input.patientId, medicineName: input.medicineName, notes: input.notes, requestedBy: actor.loginId },
     });
+    await this.audit.log({
+      actorUserId: actor.id,
+      actorType: 'user',
+      action: 'MEDICINE_REQUEST_CREATED',
+      entityTable: 'medicine_requests',
+      entityId: created.id,
+      after: { patientId: created.patientId, medicineName: created.medicineName },
+    });
+    return created;
   }
 
   list() {
@@ -29,7 +38,13 @@ export class MedicineRequestsService {
     if (!existing) throw new NotFoundException('Request not found');
     if (existing.status !== 'pending') throw new ConflictException('This request has already been resolved');
 
-    const updated = await this.prisma.medicineRequest.update({ where: { id }, data: { status } });
+    // Only while still pending: two pharmacists answering at once can't both resolve it.
+    const { count } = await this.prisma.medicineRequest.updateMany({
+      where: { id, status: 'pending' },
+      data: { status, resolvedBy: actor.loginId, resolvedAt: new Date() },
+    });
+    if (count === 0) throw new ConflictException('This request has already been resolved');
+    const updated = await this.prisma.medicineRequest.findUniqueOrThrow({ where: { id } });
 
     await this.audit.log({
       actorUserId: actor.id,

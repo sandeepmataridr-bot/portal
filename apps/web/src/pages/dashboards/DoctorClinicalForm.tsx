@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { PatientDetail } from '../../features/patients/api';
 import { useUpdatePatientClinical } from '../../features/patients/api';
 
@@ -24,13 +24,9 @@ export function DoctorClinicalForm({ patient }: { patient: PatientDetail }) {
     thyroid: patient.thyroid,
     othersText: patient.othersText ?? '',
   });
+  // The parent keys this form by patient.id, so all of it starts again for each patient.
   const [diagnosis, setDiagnosis] = useState(patient.diagnosis ?? '');
   const [doctorNotes, setDoctorNotes] = useState('');
-
-  useEffect(() => {
-    setDiagnosis(patient.diagnosis ?? '');
-    setDoctorNotes('');
-  }, [patient.id]);
 
   const saveDetails = async () => {
     await updateClinical.mutateAsync({

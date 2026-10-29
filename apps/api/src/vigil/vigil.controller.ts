@@ -42,9 +42,10 @@ export class VigilController {
     private readonly logExport: PatientLogExportService,
   ) {}
 
-  // The central station polls this once a second per open screen.
+  // The central station polls this once a second per open screen. Counted per person
+  // (StaffThrottlerGuard): 600/min is ten screens under one login, e.g. a station's wall monitors.
   @Roles('doctor')
-  @Throttle({ default: { limit: 240, ttl: 60_000 } })
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @Get('state')
   state(@Query(new ZodValidationPipe(vigilStateQuerySchema)) query: VigilStateQuery) {
     return this.vigil.state(query.window);
@@ -90,7 +91,8 @@ export class VigilController {
    */
   @Public()
   @UseGuards(MachineAuthGuard)
-  @Throttle({ default: { limit: 600, ttl: 60_000 } })
+  // Per address: every machine in a hospital may send through one address. 6000/min = 100 machines at 1 Hz.
+  @Throttle({ default: { limit: 6000, ttl: 60_000 } })
   @Post('ingest')
   ingest(@Body(new ZodValidationPipe(vigilIngestSchema)) body: VigilIngestInput, @Req() req: MachineRequest) {
     return this.vigil.ingest(req.machine!.id, body);
@@ -102,7 +104,7 @@ export class VigilController {
    */
   @Public()
   @UseGuards(MachineAuthGuard)
-  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Throttle({ default: { limit: 1200, ttl: 60_000 } })
   @Post('events')
   reportEvents(@Body(new ZodValidationPipe(machineEventsSchema)) body: MachineEventsInput, @Req() req: MachineRequest) {
     return this.events.report(req.machine!.id, body);

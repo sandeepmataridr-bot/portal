@@ -9,6 +9,7 @@ import { TokenService } from './token.service.js';
 import { TestLoginsService } from './test-logins.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
+import { StaffThrottlerGuard } from './guards/staff-throttler.guard.js';
 
 @Module({
   imports: [JwtModule.register({}), AuditModule],
@@ -24,6 +25,8 @@ import { RolesGuard } from './guards/roles.guard.js';
     // own providers.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Rate limits: per person for signed-in staff, per address otherwise (StaffThrottlerGuard).
+    { provide: APP_GUARD, useClass: StaffThrottlerGuard },
   ],
   exports: [TokenService, PasswordService],
 })

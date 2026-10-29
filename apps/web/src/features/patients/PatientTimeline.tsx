@@ -1,4 +1,4 @@
-import { DISCHARGE_OUTCOME_LABEL, DOCTOR_CHANGE_REASON_LABEL, MACHINE_TYPE_LABEL, type DischargeOutcome, type DoctorChangeReason, type MachineType } from '@infusion/shared-types';
+import { DISCHARGE_OUTCOME_LABEL, DOCTOR_CHANGE_REASON_LABEL, MACHINE_TYPE_LABEL, ROLE_LABEL, type DischargeOutcome, type DoctorChangeReason, type MachineType } from '@infusion/shared-types';
 import type { PatientHistoryEntry } from './api';
 import { OUT_PATIENT } from '../rooms/api';
 
@@ -38,13 +38,24 @@ const FIELD_LABEL: Record<string, string> = {
   address: 'Address',
 };
 
+/** Who wrote the entry, with their role ("admin1 (Admin)"); a machine shows its code. */
+function ActedBy({ entry }: { entry: PatientHistoryEntry }) {
+  if (!entry.actedBy) return null;
+  return (
+    <p className="timeline-entry__meta">
+      👤 By: {entry.actedBy}
+      {entry.actedByRole ? ` (${ROLE_LABEL[entry.actedByRole]})` : ''}
+    </p>
+  );
+}
+
 function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
   const s = entry.snapshot ?? {};
 
   if (entry.action === 'DOCTOR_UPDATE') {
     return (
       <div className="timeline-entry__body">
-        <p className="timeline-entry__meta">👤 Dr. {entry.actedBy ?? 'Unknown'}</p>
+        <ActedBy entry={entry} />
         {s.diagnosis ? <p>Diagnosis: {String(s.diagnosis)}</p> : null}
         {s.doctorNotes ? <p>Notes: {String(s.doctorNotes)}</p> : null}
         {!s.diagnosis && !s.doctorNotes ? <p className="timeline-entry__nodata">(No summary details)</p> : null}
@@ -60,7 +71,7 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
           Outcome: <b>{outcome ? DISCHARGE_OUTCOME_LABEL[outcome] ?? outcome : 'not recorded'}</b>
         </p>
         {s.dischargeRemarks ? <p>Remarks: {String(s.dischargeRemarks)}</p> : null}
-        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+        <ActedBy entry={entry} />
       </div>
     );
   }
@@ -74,7 +85,7 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
         {entry.action === 'IP_LINKED_TO' && <p>Linked to main {ip(s.mainIpNumber, s.mainFullName)}</p>}
         {entry.action === 'IP_UNLINKED' && <p>Delinked from {ip(s.otherIpNumber, s.otherFullName)}</p>}
         {s.reason ? <p>Reason: {String(s.reason)}</p> : null}
-        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+        <ActedBy entry={entry} />
       </div>
     );
   }
@@ -87,7 +98,7 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
           {entry.action === 'MACHINE_TAGGED' ? 'Machine attached' : 'Machine removed'}: <b>{String(s.machineCode ?? '?')}</b>
           {type ? ` (${MACHINE_TYPE_LABEL[type as MachineType] ?? type})` : ''}
         </p>
-        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+        <ActedBy entry={entry} />
       </div>
     );
   }
@@ -101,7 +112,7 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
         </p>
         {moved.length ? <p>Machines moved with the patient: {moved.join(', ')}</p> : null}
         {s.note ? <p>Note: {String(s.note)}</p> : null}
-        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+        <ActedBy entry={entry} />
       </div>
     );
   }
@@ -115,7 +126,7 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
             {FIELD_LABEL[c.field] ?? c.field}: {String(c.from ?? '—')} → <b>{String(c.to ?? '—')}</b>
           </p>
         ))}
-        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+        <ActedBy entry={entry} />
       </div>
     );
   }
@@ -129,7 +140,7 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
         </p>
         {reason ? <p>Reason: {reason}</p> : null}
         {s.note ? <p>Note: {String(s.note)}</p> : null}
-        {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+        <ActedBy entry={entry} />
       </div>
     );
   }
@@ -157,7 +168,7 @@ function EntryBody({ entry }: { entry: PatientHistoryEntry }) {
           .filter(Boolean)
           .join(' | ')}
       </p>
-      {entry.actedBy ? <p className="timeline-entry__meta">👤 By: {entry.actedBy}</p> : null}
+      <ActedBy entry={entry} />
     </div>
   );
 }

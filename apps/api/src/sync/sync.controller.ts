@@ -19,6 +19,8 @@ export class SyncController {
 
   @Public()
   @UseGuards(MachineAuthGuard)
+  // Per address: all of a hospital's pumps may share one (each pulls and pushes every few seconds).
+  @Throttle({ default: { limit: 3000, ttl: 60_000 } })
   @Post('pull')
   pull(@Body(new ZodValidationPipe(syncPullRequestSchema)) body: SyncPullRequest, @Req() req: MachineRequest) {
     return this.sync.pull(req.machine!.id, body);
@@ -26,6 +28,7 @@ export class SyncController {
 
   @Public()
   @UseGuards(MachineAuthGuard)
+  @Throttle({ default: { limit: 3000, ttl: 60_000 } })
   @Post('push')
   push(@Body(new ZodValidationPipe(syncPushRequestSchema)) body: SyncPushRequest, @Req() req: MachineRequest) {
     return this.sync.push(req.machine!.id, body);

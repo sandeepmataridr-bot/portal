@@ -395,6 +395,10 @@ model MedicineRequest {
   medicineName String
   notes        String?
   status       MedicineRequestStatus @default(pending)
+  /// login ID of who raised it, and of who fulfilled or rejected it
+  requestedBy  String?
+  resolvedBy   String?
+  resolvedAt   DateTime?
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
 

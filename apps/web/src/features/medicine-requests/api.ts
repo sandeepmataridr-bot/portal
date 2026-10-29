@@ -11,6 +11,10 @@ export interface MedicineRequest {
   medicineName: string;
   notes: string | null;
   status: 'pending' | 'fulfilled' | 'rejected';
+  /** login ID of who raised it; null on requests from before it was recorded */
+  requestedBy: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
   createdAt: string;
 }
 

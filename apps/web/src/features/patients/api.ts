@@ -9,6 +9,7 @@ import type {
   UpdatePatientIdentityInput,
   LinkPatientsInput,
   UnlinkPatientInput,
+  Role,
 } from '@infusion/shared-types';
 import { apiFetch } from '../../lib/api';
 
@@ -33,6 +34,8 @@ export interface PatientHistoryEntry {
   action: string;
   snapshot: Record<string, unknown>;
   actedBy: string | null;
+  /** The role of the login in actedBy; null for a machine. */
+  actedByRole?: Role | null;
   createdAt: string;
   /** The IP number this entry was written under (a linked duplicate's, in a combined timeline). */
   ipNumber?: string | null;

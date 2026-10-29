@@ -120,6 +120,8 @@ interface MachineTrack {
 /** Fleet/patient details the API knows and the engine does not (LIVE mode). */
 export interface MonitorDirectory {
   machineIdFor?(deviceId: string): string | null;
+  /** The kind it is registered as, shown until its first data says what it is. */
+  machineKindFor?(deviceId: string): string | null;
   patientLabelFor?(encounterId: string): string | null;
 }
 
@@ -238,8 +240,8 @@ export class MonitorHub {
       machines.push({
         deviceId: device,
         machineId: this.directory.machineIdFor?.(device) ?? null,
-        driver: DRIVER_LABELS[m.driver] ?? (m.driver || 'unknown'),
-        kind: machineKind(m.signals),
+        driver: DRIVER_LABELS[m.driver] ?? (m.driver || 'no data yet'),
+        kind: m.signals.size ? machineKind(m.signals) : (this.directory.machineKindFor?.(device) ?? machineKind(m.signals)),
         status,
         age,
         unmapped: m.unmapped,

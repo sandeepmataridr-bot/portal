@@ -3,19 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { loginSchema, type LoginInput, type Role, type TestLogin, type TestLoginsResponse } from '@infusion/shared-types';
+import { ROLE_LABEL, loginSchema, type LoginInput, type TestLogin, type TestLoginsResponse } from '@infusion/shared-types';
 import { useAuth } from '../auth/AuthContext';
 import { ROLE_HOME } from '../auth/roleHome';
 import { ApiError, apiFetch } from '../lib/api';
-
-const ROLE_LABEL: Record<Role, string> = {
-  admin: 'Admin',
-  doctor: 'Doctor',
-  reception: 'Reception',
-  pharmacy: 'Pharmacy',
-  insurance: 'Insurance',
-  superuser: 'Super user',
-};
 
 const PAGE_LABEL: Record<string, string> = {
   '/admin': 'Admin dashboard',

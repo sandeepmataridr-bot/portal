@@ -39,10 +39,10 @@ export class AuthController {
   }
 
   @Public()
-  // Tighter than the global default (100/min) — login is the highest-value
-  // brute-force target. This is IP-based and complements, not replaces, the
-  // per-account lockout in AuthService (5 failed attempts / 15min).
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  // Per address, and complements the per-account lockout in AuthService (5 failed
+  // attempts / 15 min). 30/min: a hospital's staff share one address, and a shift
+  // change signs many people in at once.
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
@@ -61,8 +61,10 @@ export class AuthController {
   @Public()
   // Refresh is unauthenticated (relies on the httpOnly cookie) — throttle it
   // too, since it's still a token-validation endpoint an attacker could
-  // hammer with stolen/guessed cookies.
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  // hammer with stolen/guessed cookies. Per address, and every page load
+  // calls it, so 120/min for a ward sharing one address (tokens are random
+  // 256-bit values; guessing stays hopeless).
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

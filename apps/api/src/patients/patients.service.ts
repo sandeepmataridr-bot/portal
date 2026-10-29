@@ -250,9 +250,13 @@ export class PatientsService {
       ...patient.history.map((h) => ({ ...h, ipNumber: patient.ipNumber })),
       ...patient.linkedPatients.flatMap((l) => l.history.map((h) => ({ ...h, ipNumber: l.ipNumber }))),
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    // Each entry's role beside its login ("admin1 (Admin)"); a machine's code has none.
+    const logins = [...new Set(history.map((h) => h.actedBy).filter((x): x is string => !!x))];
+    const users = await this.prisma.user.findMany({ where: { loginId: { in: logins } }, select: { loginId: true, role: true } });
+    const roles = new Map(users.map((u) => [u.loginId, u.role]));
     return {
       ...patient,
-      history,
+      history: history.map((h) => ({ ...h, actedByRole: (h.actedBy && roles.get(h.actedBy)) ?? null })),
       linkedPatients: patient.linkedPatients.map((l) => ({ id: l.id, ipNumber: l.ipNumber, fullName: l.fullName })),
     };
   }

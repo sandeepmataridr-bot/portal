@@ -73,14 +73,15 @@ export function DoctorDashboard() {
                 ✏️ {patient.room ? 'Move' : 'Assign room'}
               </button>
             )}
-            {movingRoom && <MoveRoomForm patient={patient} onDone={() => setMovingRoom(false)} />}
+            {movingRoom && <MoveRoomForm key={patient.id} patient={patient} onDone={() => setMovingRoom(false)} />}
           </div>
         )}
       </div>
 
       {patient && (
         <>
-          <DoctorClinicalForm patient={patient} />
+          {/* keyed by patient: a fresh form for each one, so nothing typed for one patient can be saved into another */}
+          <DoctorClinicalForm key={patient.id} patient={patient} />
 
           {patient.insured && (
             <div className="info-card">

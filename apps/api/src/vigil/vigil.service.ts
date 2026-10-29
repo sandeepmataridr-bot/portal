@@ -67,6 +67,14 @@ const REPLAY_BATCH = 200;
 const BUNDLE_MS = 10_000;
 const BUNDLE_MAX = 120;
 const BUNDLE_CHECK_MS = 2_000;
+/** A registered machine's kind before its first message (the names its data gives it afterwards). */
+const REGISTERED_KIND: Record<string, string> = {
+  ECMO: 'ECMO console',
+  EBOO: 'EBOO',
+  SPO2_MONITOR: 'SpO₂ monitor',
+  TEMP_MONITOR: 'Temperature monitor',
+  PATIENT_MONITOR: 'Patient monitor',
+};
 
 interface TestRun {
   scenario: Scenario;
@@ -118,6 +126,7 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
   /** Accepted device messages not yet written, per machine and driver (see queueForStorage). */
   private readonly pending = new Map<string, { machineId: string; machineCode: string; driver: string; frames: string[]; firstAt: Date }>();
   private readonly machineIds = new Map<string, string>(); // machineCode -> machine id
+  private readonly machineKinds = new Map<string, string>(); // machineCode -> kind it is registered as
   /** machineCode -> signals the superuser hides for it (display only) */
   private readonly hidden = new Map<string, Set<string>>();
   private readonly patientLabels = new Map<string, string>(); // patient id -> "Name (IP no.)"
@@ -287,6 +296,7 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
       runId: this.runId,
       directory: {
         machineIdFor: (deviceId) => this.machineIds.get(deviceId) ?? null,
+        machineKindFor: (deviceId) => this.machineKinds.get(deviceId) ?? null,
         patientLabelFor: (encounterId) => this.patientLabels.get(encounterId) ?? null,
       },
     });
@@ -425,12 +435,14 @@ export class VigilService implements OnModuleInit, OnModuleDestroy {
     const vigilTypes = { in: [...VIGIL_MACHINE_TYPES] };
     const machines = await this.prisma.machine.findMany({
       where: { machineType: vigilTypes },
-      select: { id: true, machineCode: true, hiddenSignals: true },
+      select: { id: true, machineCode: true, machineType: true, hiddenSignals: true },
     });
     this.machineIds.clear();
+    this.machineKinds.clear();
     this.hidden.clear();
     for (const m of machines) {
       this.machineIds.set(m.machineCode, m.id);
+      this.machineKinds.set(m.machineCode, REGISTERED_KIND[m.machineType] ?? 'Device');
       if (m.hiddenSignals.length) this.hidden.set(m.machineCode, new Set(m.hiddenSignals));
     }
     const active = await this.prisma.patientMachineAssignment.findMany({

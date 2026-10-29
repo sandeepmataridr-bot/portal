@@ -109,8 +109,8 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * already authenticated as the owning machine — never accepted as a claim
    * of "I am machine X" over an unauthenticated channel.
    */
-  // The app's global guards (JwtAuthGuard, RolesGuard, ThrottlerGuard — all
-  // registered via APP_GUARD in app.module.ts) are HTTP-oriented and crash
+  // The app's global guards (JwtAuthGuard, RolesGuard, StaffThrottlerGuard — all
+  // registered via APP_GUARD in auth.module.ts) are HTTP-oriented and crash
   // against a WS execution context (confirmed live: JwtAuthGuard reading
   // `request.headers.authorization` on an undefined request; ThrottlerGuard
   // calling `res.header(...)` with no res) — this is the app's first
